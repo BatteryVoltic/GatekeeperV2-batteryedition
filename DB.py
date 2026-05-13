@@ -117,6 +117,7 @@ class Database:
         if not self.DBExists:
             self._InitializeDatabase()
             # self._InitializeDefaultData()
+        self.EnsureCompatibilityColumns()
         self.DBConfig = self.GetConfig()
 
     def _InitializeDatabase(self):
@@ -142,6 +143,17 @@ class Database:
                         Discord_Event_Channel text nocase,
                         Discord_Role text collate nocase,
                         Avatar_url text,
+                        Embed_Image_url text,
+                        Embed_Color text,
+                        Embed_Color_Mode text,
+                        Embed_Color_Online text,
+                        Embed_Color_Offline text,
+                        Embed_Color_Starting text,
+                        Embed_Color_Role text,
+                        Embed_Donator_Hidden integer not null,
+                        Embed_Whitelist_Hidden integer not null,
+                        Embed_Footer_Timezone text,
+                        Embed_Footer_Format text,
                         Hidden integer not null
                         )""")
 
@@ -247,6 +259,8 @@ class Database:
         # self._AddConfig('Whitelist_Emoji_Done', ':ballot_box_with_check:')
         self._AddConfig("Banner_Auto_Update", True)
         self._AddConfig("Banner_Type", 0)  # 0 = Discord embeds | 1 = Custom Banner Images
+        self._AddConfig("Banner_Update_Interval", 60)
+        self._AddConfig("Banner_Timestamp_Format", "f")
         self._AddConfig("Bot_Version", None)
         self._AddConfig("Message_Timeout", 60)
         # Donator Settings
@@ -254,6 +268,37 @@ class Database:
         self._AddConfig("Donator_role_id", None)
         # Prevent Server being removed from Banner Group
         self._AddConfig("Auto_BG_Remove", False)
+
+    def EnsureCompatibilityColumns(self):
+        columns = {row["name"] for row in self._db.execute("PRAGMA table_info(Servers)").fetchall()}
+        required = {
+            "Embed_Image_url": "text",
+            "Embed_Color": "text",
+            "Embed_Color_Mode": "text",
+            "Embed_Color_Online": "text",
+            "Embed_Color_Offline": "text",
+            "Embed_Color_Starting": "text",
+            "Embed_Color_Role": "text",
+            "Embed_Donator_Hidden": "integer not null default 0",
+            "Embed_Whitelist_Hidden": "integer not null default 0",
+            "Embed_Footer_Timezone": "text",
+            "Embed_Footer_Format": "text",
+        }
+        for name, definition in required.items():
+            if name not in columns:
+                self._execute(f"ALTER TABLE Servers ADD COLUMN {name} {definition}", ())
+
+        config_rows = {
+            row["Name"] for row in self._db.execute("SELECT Name FROM Config").fetchall()
+        } if self._db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='Config'").fetchone() else set()
+        if "Banner_Update_Interval" not in config_rows:
+            self._AddConfig("Banner_Update_Interval", 60)
+        if "Banner_Timezone" not in config_rows:
+            self._AddConfig("Banner_Timezone", "UTC")
+        if "Banner_Use_12Hour" not in config_rows:
+            self._AddConfig("Banner_Use_12Hour", True)
+        if "Banner_Timestamp_Format" not in config_rows:
+            self._AddConfig("Banner_Timestamp_Format", "f")
 
     def _execute(self, SQL, params):
         Retry = 0
@@ -344,7 +389,7 @@ class Database:
         return serverlist
 
     def GetUser(self, value: str):
-        """Finds a User using either DiscordID, DiscordName, MC_InGameName, MC_UUID, or SteamID."""
+        """Finds a User using DiscordID, DiscordName, MC_InGameName, MC_UUID, or SteamID."""
         # find the user
         (row, cur) = self._fetchone(
             "select ID from Users where DiscordID=? or DiscordName=? or MC_IngameName=? or MC_UUID=? or SteamID=?",
@@ -367,6 +412,7 @@ class Database:
         MC_IngameName: str = None,
         MC_UUID: str = None,
         SteamID: str = None,
+        Role: str = None,
     ):
         try:
             return DBUser(
@@ -376,6 +422,7 @@ class Database:
                 MC_IngameName=MC_IngameName,
                 MC_UUID=MC_UUID,
                 SteamID=SteamID,
+                Role=Role,
             )
         except Exception as e:
             print("DBUser error", e)
@@ -1042,6 +1089,17 @@ class DBServer:
             "Discord_Event_Channel": None,
             "Discord_Role": None,
             "Avatar_url": None,
+            "Embed_Image_url": None,
+            "Embed_Color": "#71368a",
+            "Embed_Color_Mode": "static",
+            "Embed_Color_Online": "#2ecc71",
+            "Embed_Color_Offline": "#e74c3c",
+            "Embed_Color_Starting": "#f1c40f",
+            "Embed_Color_Role": "#71368a",
+            "Embed_Donator_Hidden": 0,
+            "Embed_Whitelist_Hidden": 0,
+            "Embed_Footer_Timezone": "UTC",
+            "Embed_Footer_Format": "%Y-%m-%d %I:%M %p %Z",
             "Hidden": 0,
         }
 
@@ -1123,6 +1181,9 @@ class DBServer:
         elif name in ["Whitelist", "Donator", "Console_Flag", "Console_Filtered"]:
             # convert to bool
             value = bool(value)
+
+        elif name in ["Embed_Donator_Hidden", "Embed_Whitelist_Hidden"]:
+            value = int(bool(value))
 
         elif name in [
             "Discord_Console_Channel",

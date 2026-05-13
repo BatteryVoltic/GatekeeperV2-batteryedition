@@ -54,6 +54,33 @@ Whitelist_settings_choices = [app_commands.Choice(name='True', value=True),
                               ]
 
 
+class InteractionWhitelistMessage:
+    """Small message adapter for whitelist requests started from a Discord button."""
+
+    def __init__(self, interaction: discord.Interaction):
+        self.id = interaction.id
+        self.author = interaction.user
+        self.channel = interaction.channel
+        self.created_at = discord.utils.utcnow()
+
+
+class InteractionWhitelistContext:
+    """Small context adapter for reusing the existing command whitelist handler."""
+
+    def __init__(self, interaction: discord.Interaction, request_message: InteractionWhitelistMessage):
+        self.interaction = interaction
+        self.author = interaction.user
+        self.guild = interaction.guild
+        self.channel = interaction.channel
+        self.message = request_message
+
+    async def send(self, content=None, **kwargs):
+        kwargs.pop("delete_after", None)
+        if self.interaction.response.is_done():
+            return await self.interaction.followup.send(content=content, ephemeral=True, **kwargs)
+        return await self.interaction.response.send_message(content=content, ephemeral=True, **kwargs)
+
+
 class Whitelist(commands.Cog):
     def __init__(self, client: Gatekeeper):
         self._client: Gatekeeper = client
@@ -320,13 +347,64 @@ class Whitelist(commands.Cog):
 
             await self.whitelist_request_handler(context=context, message=message, discord_user=context.author, server=amp_server, ign=ign)
 
-    async def whitelist_request_handler(self, context: commands.Context, message: discord.Message, discord_user: discord.Member, server: AMP_Handler.AMP.AMPInstance, ign: str = None):
+    def whitelist_request_needs_form(self, discord_user: discord.Member, server: AMP_Handler.AMP.AMPInstance) -> bool:
+        """Returns true when a button request needs additional user input."""
+        db_user = self.DB.GetUser(discord_user.id)
+        if self.whitelist_request_uses_player_id(server):
+            return db_user == None or db_user.SteamID in [None, "", "None"]
+        if hasattr(server, "name_Conversion"):
+            return db_user == None or db_user.MC_IngameName in [None, "", "None"]
+        return False
+
+    @staticmethod
+    def whitelist_request_is_minecraft_server(server: AMP_Handler.AMP.AMPInstance) -> bool:
+        module = str(getattr(server, "Module", "") or "").lower()
+        display_source = str(getattr(server, "DisplayImageSource", "") or "").lower()
+        return module == "minecraft" or "minecraft" in display_source
+
+    @classmethod
+    def whitelist_request_uses_player_id(cls, server: AMP_Handler.AMP.AMPInstance) -> bool:
+        """All non-Minecraft AMP games use SteamID64 for staff-reviewed whitelist requests."""
+        return not cls.whitelist_request_is_minecraft_server(server)
+
+    async def whitelist_request_from_interaction(self, interaction: discord.Interaction, instance_id: str, ign: str = None, steam_id: str = None):
+        """Starts a whitelist request from a public server display button."""
+        amp_server = self.AMPHandler.AMP_Instances.get(instance_id)
+        if amp_server == None:
+            return await interaction.response.send_message("That server is not available right now.", ephemeral=True)
+
+        request_message = InteractionWhitelistMessage(interaction)
+        context = InteractionWhitelistContext(interaction, request_message)
+
+        if not interaction.response.is_done():
+            await interaction.response.send_message("Handling your whitelist request, please wait...", ephemeral=True)
+        response_message = await interaction.original_response()
+
+        temp_Whitelist_wait_list = self._client.Whitelist_wait_list
+        for key, value in temp_Whitelist_wait_list.items():
+            if value['context'].author.id == interaction.user.id and value['ampserver'].InstanceID == amp_server.InstanceID:
+                return await response_message.edit(content=f'Hey, I already have a whitelist request pending from you on {amp_server.InstanceName if amp_server.FriendlyName == None else amp_server.FriendlyName}')
+
+        await self.whitelist_request_handler(
+            context=context,
+            message=response_message,
+            discord_user=interaction.user,
+            server=amp_server,
+            ign=ign,
+            steam_id=steam_id,
+            request_message=request_message,
+            interaction_request=True,
+        )
+
+    async def whitelist_request_handler(self, context: commands.Context, message: discord.Message, discord_user: discord.Member, server: AMP_Handler.AMP.AMPInstance, ign: str = None, steam_id: str = None, request_message=None, interaction_request: bool = False):
         """Whitelist request handler checks for a DB User, checks for their IGN, checks if they are Whitelisted and any other required checks to whitelist a user. """
         self.logger.command(f'Whitelist Request: ign: {ign} servers: {server.FriendlyName} user: {discord_user.name}')
         bypass_wait_time = False
+        if request_message == None:
+            request_message = context.message
 
         if self._client.get_channel(self.DBConfig.GetSetting('Whitelist_Request_Channel')) == None:
-            return await message.edit(content=f'It appears the `Staff` of **{context.guild.name}** has yet to setup a `Whitelist Request Channel`, please inform a Staff member.')
+            return await message.edit(content=f'It appears the `Staff` of **{context.guild.name}** has yet to setup a `Whitelist Request Channel`. Staff can set this in the web UI under **Bot Settings > Whitelist Cog** or with `/bot whitelist request_channel`.')
 
         server_name = f"{server.FriendlyName if server.FriendlyName != None else server.InstanceName}"
         db_user = self.DB.GetUser(discord_user.id)
@@ -335,17 +413,37 @@ class Whitelist(commands.Cog):
             db_user = self.DB.AddUser(DiscordID=discord_user.id, DiscordName=discord_user.name)
             self.logger.info(f'Added new user to the DB: {discord_user.name}')
 
+        uses_player_id = self.whitelist_request_uses_player_id(server)
+        player_id_label = "SteamID64"
+        if uses_player_id:
+            if steam_id != None:
+                steam_id = steam_id.strip()
+            saved_player_id = db_user.SteamID
+            if not steam_id and saved_player_id in [None, "", "None"]:
+                return await message.edit(content=f'I need your **{player_id_label}** before I can submit this whitelist request.')
+            if steam_id:
+                try:
+                    db_user.SteamID = steam_id
+                except sqlite3.IntegrityError:
+                    duplicate_steam_db_user = self.DB.GetUser(steam_id)
+                    duplicate_member = context.guild.get_member(duplicate_steam_db_user.DiscordID) if duplicate_steam_db_user != None else None
+                    owner = duplicate_member.mention if duplicate_member != None else "another Discord user"
+                    return await message.edit(content=f'The {player_id_label} **{steam_id}** is already registered to {owner}.')
+
         # Its possible that the IGN already exists in the DB; this is to prevent people from requesting whitelist for other people/etc..
         # check_whitelist can fail with a UNIQUE constraint exception from the SQLite DB.
-        try:
-            exists = server.check_Whitelist(db_user, ign)
-        except sqlite3.IntegrityError as e:
-            # We check the first entry of the tuple.
-            if "UNIQUE constraint failed" in e.args[0]:
-                duplicate_ign_db_user = self.DB.GetUser(ign)
-                return await message.edit(content=f'The IGN **{ign}** must be Unique for your Whitelist request; it appears to belong to {context.guild.get_member(duplicate_ign_db_user.DiscordID).mention}')
-            else:  # Any other errors need to be presented
-                return await message.edit(content=f'We were unable to handle your request because of a SQLite Error {traceback.format_exc()}; please report this to staff.')
+        if uses_player_id:
+            exists = True
+        else:
+            try:
+                exists = server.check_Whitelist(db_user, ign)
+            except sqlite3.IntegrityError as e:
+                # We check the first entry of the tuple.
+                if "UNIQUE constraint failed" in e.args[0]:
+                    duplicate_ign_db_user = self.DB.GetUser(ign)
+                    return await message.edit(content=f'The IGN **{ign}** must be Unique for your Whitelist request; it appears to belong to {context.guild.get_member(duplicate_ign_db_user.DiscordID).mention}')
+                else:  # Any other errors need to be presented
+                    return await message.edit(content=f'We were unable to handle your request because of a SQLite Error {traceback.format_exc()}; please report this to staff.')
 
         if exists == False:
             return await message.edit(content=f'Well I am unable to handle your request, {f"the **IGN**: `{ign}` appears to be invalid." if ign != None else "I need your **IGN** to handle your request."}')
@@ -361,37 +459,45 @@ class Whitelist(commands.Cog):
             return await message.edit(content=f'Ooops, it appears that the server **{server_name}** has their Whitelisting Closed. If this is an error please contact a Staff Member.')
 
         if db_server.Donator == True:
-            author_roles = []
-            for role in discord_user.author.roles:
-                author_roles.append(role.id)
-                if self.DBConfig.GetSetting('Donator_Role') != None:
-                    if int(self.DBConfig.GetSetting('Donator_role_id')) not in author_roles:
-                        return await message.edit(content=f'*Waves* Hey **{server_name}** is for Donator Access Only, it appears you do not have Donator. If this is an error please contact a Staff Member.')
-                    # Allows the user to bypass the wait time.
-                    elif self.DBConfig.GetSetting('Donator_Bypass'):
-                        bypass_wait_time = True
+            author_roles = [role.id for role in discord_user.roles]
+            donator_role_id = self.DBConfig.GetSetting('Donator_role_id')
+            if donator_role_id != None:
+                if int(donator_role_id) not in author_roles:
+                    return await message.edit(content=f'*Waves* Hey **{server_name}** is for Donator Access Only, it appears you do not have Donator. If this is an error please contact a Staff Member.')
+                # Allows the user to bypass the wait time.
+                elif self.DBConfig.GetSetting('Donator_Bypass'):
+                    bypass_wait_time = True
 
-                else:
-                    return await message.edit(content=f'Well it appears that the Staff have not set a Donator Role yet, Please inform Staff of this error.')
+            else:
+                return await message.edit(content=f'Well it appears that the Staff have not set a Donator Role yet, Please inform Staff of this error.')
 
         wait_time_value = self.DBConfig.GetSetting("Whitelist_Wait_Time")
-        self._client.Whitelist_wait_list[context.message.id] = {'ampserver': server, 'context': context, 'dbuser': db_user}
+        self._client.Whitelist_wait_list[request_message.id] = {
+            'ampserver': server,
+            'context': context,
+            'dbuser': db_user,
+            'created_at': request_message.created_at,
+            'interaction_request': interaction_request,
+        }
 
         format_1 = f'Current wait time is {wait_time_value} {"minutes" if wait_time_value > 1 else "minute"}'
         self.logger.info(f'Added {context.author} to Whitelist Wait List. {"Auto-Whitelist is Disabled, waiting for Staff Approval Only" if not self.DBConfig.GetSetting("Auto_Whitelist") else format_1}')
-        self.logger.dev(f'MessageID: {context.message.id}')
+        self.logger.dev(f'MessageID: {request_message.id}')
 
-        # If Auto-Whitelist is disabled; means we are waiting for STAFF Approval ONLY!
-        if not self.DBConfig.GetSetting('Auto_Whitelist'):
+        # If Auto-Whitelist is disabled, or this game has no direct whitelist-file support,
+        # we wait for STAFF Approval ONLY.
+        if not self.DBConfig.GetSetting('Auto_Whitelist') or uses_player_id:
             wait_time_value = None
-            await message.edit(content=f'Your whitelist request has been accepted and is awaiting __Staff Approval__. \n')
+            saved_player_id = db_user.SteamID
+            steam_note = f'\n> {player_id_label} saved: `{saved_player_id}`' if uses_player_id else ''
+            await message.edit(content=f'Your whitelist request has been accepted and is awaiting __Staff Approval__.{steam_note}\n')
 
         # If Auto-whitelist is enabled
         elif self.DBConfig.GetSetting('Auto_Whitelist'):
             # and the wait time is either instant or bypass_wait_time is true.
             if wait_time_value == 0 or bypass_wait_time:
                 # Remove them from the waitlist
-                self._client.Whitelist_wait_list.pop(context.message.id)
+                self._client.Whitelist_wait_list.pop(request_message.id)
                 server.addWhitelist(db_user=db_user)
 
                 # Lets get all the custom Whitelist Replies in the DB and randomly pick one.
@@ -419,8 +525,12 @@ class Whitelist(commands.Cog):
 
         # Send view to specific channel
         whitelist_request_channel = self._client.get_channel(self.DBConfig.GetSetting('Whitelist_Request_Channel'))  # Whitelist Channel #This will point to a Staff Channel/Similar
-        whitelist_request_message = await whitelist_request_channel.send(content=f'Whitelist Request from `{context.message.author.name}` for Server: **{server.FriendlyName}**...')
-        await whitelist_request_message.edit(view=self.uiBot.Whitelist_view(client=self._client, discord_message=whitelist_request_message, whitelist_message=context.message, amp_server=server, context=context, timeout=wait_time_value))
+        request_content = f'Whitelist Request from `{request_message.author.name}` for Server: **{server.FriendlyName}**...'
+        if uses_player_id:
+            saved_player_id = db_user.SteamID
+            request_content += f'\n{player_id_label}: `{saved_player_id}`'
+        whitelist_request_message = await whitelist_request_channel.send(content=request_content)
+        await whitelist_request_message.edit(view=self.uiBot.Whitelist_view(client=self._client, discord_message=whitelist_request_message, whitelist_message=request_message, amp_server=server, context=context, timeout=wait_time_value))
 
     @tasks.loop(seconds=30)
     async def whitelist_waitlist_handler(self):
@@ -442,10 +552,14 @@ class Whitelist(commands.Cog):
             cur_amp_server = value['ampserver']  # AMPInstance Object
             cur_message_context = value['context']
             cur_db_user = value['dbuser']  # This is the DB User object
+            requested_at = value.get('created_at', cur_message.created_at)
+            message_reference = None if value.get('interaction_request') else cur_message
 
             # This should compare datetime objects and if the datetime of when the message was created plus the wait time is greater than or equal the cur_time they get whitelisted.
-            if cur_message.created_at + wait_time <= cur_time:
-                if cur_amp_server.check_Whitelist(cur_db_user):
+            if requested_at + wait_time <= cur_time:
+                uses_player_id = self.whitelist_request_uses_player_id(cur_amp_server)
+                player_id_label = "SteamID64"
+                if uses_player_id or cur_amp_server.check_Whitelist(cur_db_user):
                     db_server = self.DB.GetServer(value['ampserver'].InstanceID)
                     self.logger.dev(f'Whitelist Request time has come up; Attempting to Whitelist {cur_message_context.author.name} on {db_server.FriendlyName}')
 
@@ -455,16 +569,23 @@ class Whitelist(commands.Cog):
                         discord_user = self.uBot.user_parse(cur_message.author.id, cur_message_context, cur_message_context.guild.id)
                         await discord_user.add_roles(discord_role, reason='Auto Whitelisting')
 
-                    # This is for all the Replies
-                    if len(self.DB.GetAllWhitelistReplies()) != 0:
+                    if uses_player_id:
+                        saved_player_id = cur_db_user.SteamID
+                        await cur_message_context.channel.send(
+                            content=f'{cur_message_context.author.mention} your whitelist request for **{db_server.FriendlyName}** is ready for staff review. {player_id_label}: `{saved_player_id}`',
+                            reference=message_reference,
+                            delete_after=self._client.Message_Timeout,
+                        )
+                    elif len(self.DB.GetAllWhitelistReplies()) != 0:
                         whitelist_reply = random.choice(self.DB.GetAllWhitelistReplies())
                         #
-                        await cur_message_context.channel.send(content=f'{cur_message_context.author.mention} \n{self.uBot.whitelist_reply_handler(whitelist_reply, cur_message_context, cur_amp_server)}', reference=cur_message, delete_after=self._client.Message_Timeout)
+                        await cur_message_context.channel.send(content=f'{cur_message_context.author.mention} \n{self.uBot.whitelist_reply_handler(whitelist_reply, cur_message_context, cur_amp_server)}', reference=message_reference, delete_after=self._client.Message_Timeout)
                     else:
-                        await cur_message_context.channel.send(content=f'You are all set! We whitelisted {cur_message_context.author.mention} on **{db_server.FriendlyName}** ', reference=cur_message, delete_after=self._client.Message_Timeout)
+                        await cur_message_context.channel.send(content=f'You are all set! We whitelisted {cur_message_context.author.mention} on **{db_server.FriendlyName}** ', reference=message_reference, delete_after=self._client.Message_Timeout)
 
-                    cur_amp_server.addWhitelist(db_user=cur_db_user)
-                    self.logger.command(f'Whitelisting {cur_message_context.author.name} on {cur_amp_server.FriendlyName}')
+                    if not uses_player_id:
+                        cur_amp_server.addWhitelist(db_user=cur_db_user)
+                        self.logger.command(f'Whitelisting {cur_message_context.author.name} on {cur_amp_server.FriendlyName}')
                     self._client.Whitelist_wait_list.pop(key)
 
 

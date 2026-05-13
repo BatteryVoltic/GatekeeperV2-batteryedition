@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-header"><div><span class="eyebrow">Members</span><h1>Users</h1></div></header>
+<section class="panel">
+  <p class="muted">Users are created automatically from Discord members, joins, and whitelist requests. Edit permission roles here when a user needs different access.</p>
+  <form class="toolbar" method="get">
+    <input name="q" value="{{ query }}" placeholder="Search Discord, Minecraft, UUID, or SteamID64">
+    <button class="button" type="submit">Search</button>
+  </form>
+  <form class="form-grid compact" method="post">
+    <input type="hidden" name="action" value="add_user">
+    <input name="DiscordID" placeholder="Discord ID" required title="Required. Discord user ID from Discord developer mode.">
+    <input name="DiscordName" placeholder="Discord name" title="Optional friendly Discord name.">
+    <input name="MC_IngameName" placeholder="Minecraft IGN" title="Optional Minecraft in-game name. Whitelist requests can collect this automatically.">
+    <input name="MC_UUID" placeholder="Minecraft UUID" title="Optional Minecraft UUID. The Minecraft whitelist flow can resolve this from IGN.">
+    <input name="SteamID" placeholder="SteamID64" title="SteamID64 for non-Minecraft whitelist requests, including Steam games using AMP generic configs.">
+    <select name="Role" title="Optional custom permission role name.">
+      <option value="">No permission role</option>
+      {% for role_name in role_names %}
+      <option value="{{ role_name }}" {% if role_name == 'General' %}selected{% endif %}>{{ role_name }}</option>
+      {% endfor %}
+    </select>
+    <button class="button primary" type="submit">Add User</button>
+  </form>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Discord</th><th>Minecraft</th><th>SteamID64</th><th>Permission Role</th><th></th></tr></thead>
+      <tbody>
+        {% for user in users %}
+        <tr>
+          <td>{{ user.DiscordName or 'Unknown' }}<small>{{ user.DiscordID }}</small></td>
+          <td>{{ user.MC_IngameName or '' }}<small>{{ user.MC_UUID or '' }}</small></td>
+          <td>{{ user.SteamID or '' }}</td>
+          <td>
+            <form class="inline-form" method="post">
+              <input type="hidden" name="action" value="update_role">
+              <input type="hidden" name="user_id" value="{{ user.ID }}">
+              <select name="role_name">
+                <option value="">No permission role</option>
+                {% for role_name in role_names %}
+                <option value="{{ role_name }}" {% if user.Role == role_name %}selected{% endif %}>{{ role_name }}</option>
+                {% endfor %}
+              </select>
+              <button class="button" type="submit">Save</button>
+            </form>
+          </td>
+          <td><form method="post" action="{{ url_for('delete_user', user_id=user.ID) }}"><button class="link-danger" type="submit">Delete</button></form></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

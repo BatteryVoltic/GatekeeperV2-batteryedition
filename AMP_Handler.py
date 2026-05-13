@@ -237,6 +237,8 @@ class AMPHandler():
                 server = self.AMP_Modules[image_source](instanceID=amp_instance['InstanceID'], serverdata=amp_instance, Handler=self)
                 self.AMP_Instances[server.InstanceID] = server
 
+        self.remove_stale_db_servers(available_instances)
+
         # AMPHandler AMP Instances will be empty on first startup; we need to NOT compare for any missing instances.
         if startup:
             return
@@ -245,8 +247,34 @@ class AMPHandler():
             if instanceID not in available_instances:
                 amp_server = self.AMP_Instances[instanceID]
                 self.logger.warning(f'Found the AMP Instance {amp_server.InstanceName} that no longer exists.')
-                self.logger.warning(f'Removing {amp_server.InstanceName} from `Gatekeepers` available Instance list.')
+                self.logger.warning(f'Removing {amp_server.InstanceName} from `Gatekeepers` available Instance list and Web UI.')
                 self.AMP_Instances.pop(instanceID)
+
+    def remove_stale_db_servers(self, available_instances: list[str]) -> None:
+        """Removes database servers that are no longer returned by AMP."""
+        available_ids = {str(instance_id) for instance_id in available_instances}
+        if not available_ids:
+            self.logger.warning("Skipping stale Web UI server cleanup because AMP returned no available instances.")
+            return
+        try:
+            rows, _cur = self.DB._fetchall("select ID, InstanceID, InstanceName, FriendlyName from Servers", tuple())
+        except Exception:
+            self.logger.error(f'Unable to check stale Web UI servers. Error: {traceback.format_exc()}')
+            return
+
+        for row in rows:
+            instance_id = str(row["InstanceID"])
+            if instance_id in available_ids:
+                continue
+            server_name = row["FriendlyName"] or row["InstanceName"] or instance_id
+            try:
+                self.DB._execute("delete from ServerRegexPatterns where ServerID=?", (row["ID"],))
+                self.DB._execute("delete from ServerBanners where ServerID=?", (row["ID"],))
+                self.DB._execute("delete from BannerGroupServers where ServerID=?", (row["ID"],))
+                self.DB._execute("delete from Servers where ID=?", (row["ID"],))
+                self.logger.warning(f'Removed {server_name} from the Web UI because AMP no longer reports that instance.')
+            except Exception:
+                self.logger.error(f'Unable to remove stale Web UI server {server_name}. Error: {traceback.format_exc()}')
 
 
 def getAMPHandler(args: Namespace = False) -> AMPHandler:

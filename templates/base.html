@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gatekeeper Web UI</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+  <script>
+    const savedTheme = localStorage.getItem("gatekeeper-theme") || "dark";
+    document.documentElement.dataset.theme = savedTheme;
+  </script>
+  <div class="app-shell">
+    {% if session.get("logged_in") %}
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="{{ url_for('dashboard') }}">
+        <span class="brand-mark">G</span>
+        <span><strong>Gatekeeper</strong><small>Control Center</small></span>
+      </a>
+      <nav>
+        <a href="{{ url_for('dashboard') }}"><span class="nav-icon">⌂</span><span class="nav-label">Overview</span></a>
+        <a href="{{ url_for('servers') }}"><span class="nav-icon">▣</span><span class="nav-label">Servers</span></a>
+        <a href="{{ url_for('display_settings') }}"><span class="nav-icon">◧</span><span class="nav-label">Display</span></a>
+        <a href="{{ url_for('permissions_page') }}"><span class="nav-icon">⚿</span><span class="nav-label">Permissions</span></a>
+        <a href="{{ url_for('settings_page') }}"><span class="nav-icon">⚙</span><span class="nav-label">Bot Settings</span></a>
+        <a href="{{ url_for('amp_login') }}"><span class="nav-icon">⇄</span><span class="nav-label">AMP Login</span></a>
+        <a href="{{ url_for('users') }}"><span class="nav-icon">◇</span><span class="nav-label">Users</span></a>
+        <a href="{{ url_for('regex') }}"><span class="nav-icon">.*</span><span class="nav-label">Regex Filters</span></a>
+        <a href="{{ url_for('whitelist_replies') }}"><span class="nav-icon">✓</span><span class="nav-label">Whitelist Replies</span></a>
+        <a href="{{ url_for('account') }}"><span class="nav-icon">◌</span><span class="nav-label">Account</span></a>
+      </nav>
+      <div class="sidebar-footer">
+        <button class="icon-button" id="sidebarToggle" type="button" title="Collapse menu">☰</button>
+        <button class="icon-button" id="themeToggle" type="button" title="Toggle theme">◐</button>
+        <form method="post" action="{{ url_for('reboot_bot') }}" onsubmit="return confirm('Reboot Gatekeeper now? AMP should restart the instance if restart policy is enabled.');">
+          <button class="icon-button danger" type="submit" title="Reboot bot">↻</button>
+        </form>
+        <a class="button ghost logout-button" href="{{ url_for('logout') }}"><span class="nav-label">Log Out</span></a>
+      </div>
+    </aside>
+    {% endif %}
+    <main class="{% if not session.get('logged_in') %}login-main{% endif %}">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-stack">
+          {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+          {% endfor %}
+        </div>
+        {% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

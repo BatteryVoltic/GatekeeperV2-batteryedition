@@ -1,0 +1,427 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-header">
+  <div><span class="eyebrow">Server</span><h1>{{ server_name(server) }}</h1></div>
+  <a class="button ghost" href="{{ url_for('servers') }}">Back</a>
+</header>
+
+<div class="tabs" role="tablist">
+  <button class="tab-button active" type="button" data-tab="overview">Overview</button>
+  <button class="tab-button" type="button" data-tab="posting">Discord Posting</button>
+  {% if settings.Banner_Type|string != "1" %}
+  <button class="tab-button" type="button" data-tab="embeds">Discord Embeds</button>
+  {% endif %}
+  {% if settings.Banner_Type|string == "1" %}
+  <button class="tab-button" type="button" data-tab="banners">Banners</button>
+  {% endif %}
+  <button class="tab-button" type="button" data-tab="regex">Regex</button>
+</div>
+
+<div class="tab-panel active" id="tab-overview">
+<section class="content-grid">
+  <div class="panel">
+    <div class="panel-header"><h2>Live Controls</h2><span class="status-pill {{ 'good' if live else 'warn' }}">{{ 'Connected' if live else 'Database only' }}</span></div>
+    <p class="muted">Use these buttons to send direct AMP actions. Start/Stop/Restart are normal controls, Backup creates an AMP backup, and Kill force-stops the instance only when normal stop is not working.</p>
+    <div class="status-stack" id="serverStatusStack" data-live-url="{{ url_for('server_statuses_api') }}" data-instance-id="{{ server.InstanceID }}">
+      <div><i class="dot {{ 'on' if live else 'off' }}" data-status-dot="amp_connected"></i><strong>AMP</strong><span data-status-text="amp_connected">{{ 'Connected' if live else 'Disconnected' }}</span></div>
+      <div><i class="dot {{ 'on' if live and live.Running else 'off' }}" data-status-dot="container_online"></i><strong>Container</strong><span data-status-text="container_online">{{ 'Online' if live and live.Running else 'Offline' }}</span></div>
+      <div><i class="dot {{ 'on' if live and live.ADS_Running and not live.ADS_Starting else 'off' }}" data-status-dot="dedicated_online"></i><strong>Server</strong><span data-status-text="dedicated_online">{{ 'Starting' if live and live.ADS_Starting else ('Online' if live and live.ADS_Running else 'Offline') }}</span></div>
+    </div>
+    <form class="action-row" method="post" action="{{ url_for('server_action', instance_id=server.InstanceID) }}">
+      <button name="action" value="start" class="button primary">Start</button>
+      <button name="action" value="stop" class="button">Stop</button>
+      <button name="action" value="restart" class="button">Restart</button>
+      <button name="action" value="backup" class="button">Backup</button>
+      <button name="action" value="kill" class="button danger">Kill</button>
+    </form>
+    <form class="stack" method="post" action="{{ url_for('server_action', instance_id=server.InstanceID) }}">
+      <label>Console message or command
+        <textarea name="message" rows="4" placeholder="say Server restart in 5 minutes"></textarea>
+        <small>Sends text directly to the AMP console. Use this for server commands like announcements, saves, or game-specific console commands.</small>
+      </label>
+      <button name="action" value="message" class="button primary">Send To Console</button>
+    </form>
+  </div>
+
+  <form class="panel wide form-grid autosave-form" method="post" data-autosave-url="{{ url_for('api_server_setting', instance_id=server.InstanceID) }}">
+    <input type="hidden" name="form_scope" value="overview">
+    <div class="panel-header full">
+      <h2>Server Identity</h2>
+      <span class="autosave-state" data-autosave-state>Changes save automatically</span>
+    </div>
+    <label>Display name<input name="DisplayName" value="{{ server.DisplayName or '' }}" data-preview-source="title"><small>Name shown in Discord embeds, banners, and the web UI. Leave blank to use the AMP instance name.</small></label>
+    <label>Host<input name="Host" value="{{ server.Host or '' }}" data-preview-source="host"><small>Public connection address players should use, such as an IP, domain, or domain:port.</small></label>
+    <label>Discord role
+      <select name="Discord_Role">
+        <option value="">Not set</option>
+        {% if server.Discord_Role %}<option value="{{ server.Discord_Role }}" selected>Current role: {{ server.Discord_Role }}</option>{% endif %}
+        {% for role in discord_options.roles %}
+        <option value="{{ role.id }}" {% if server.Discord_Role|string == role.id|string %}selected{% endif %}>{{ role.name }}</option>
+        {% endfor %}
+      </select>
+      <small>Role given to players when their whitelist request is approved for this server.</small>
+    </label>
+    <label>Chat prefix<input name="Discord_Chat_Prefix" value="{{ server.Discord_Chat_Prefix or '' }}"><small>Prefix shown when relaying in-game chat to Discord. Example: [Survival]</small></label>
+    <div class="panel-header full section-break"><h2>Access And Visibility</h2></div>
+    <div class="toggle-list full">
+      <label><input type="checkbox" name="Whitelist" {% if server.Whitelist %}checked{% endif %}> Whitelist <span data-switch-label data-on="On" data-off="Off">{{ 'On' if server.Whitelist else 'Off' }}</span> <small>On lets players use the Discord whitelist button for this server. Off closes public requests.</small></label>
+      <label><input type="checkbox" name="Donator" {% if server.Donator %}checked{% endif %}> Donator-only <span data-switch-label data-on="On" data-off="Off">{{ 'On' if server.Donator else 'Off' }}</span> <small>On limits whitelist requests to users with the configured Donator role.</small></label>
+      <label><input type="checkbox" name="Hidden" {% if server.Hidden %}checked{% endif %}> Public listing <span data-switch-label data-on="Off" data-off="On">{{ 'Off' if server.Hidden else 'On' }}</span> <small>Off hides this server from public autocomplete and listing views.</small></label>
+    </div>
+    <div class="panel-header full section-break"><h2>Discord Channels</h2></div>
+    <label>Console channel
+      <select name="Discord_Console_Channel">
+        <option value="">Not set</option>
+        {% if server.Discord_Console_Channel %}<option value="{{ server.Discord_Console_Channel }}" selected>Current channel: {{ server.Discord_Console_Channel }}</option>{% endif %}
+        {% for channel in discord_options.channels %}
+        <option value="{{ channel.id }}" {% if server.Discord_Console_Channel|string == channel.id|string %}selected{% endif %}>{{ channel.name }}</option>
+        {% endfor %}
+      </select>
+      <small>Discord channel where AMP console output and console interaction are routed.</small>
+    </label>
+    <label>Chat channel
+      <select name="Discord_Chat_Channel">
+        <option value="">Not set</option>
+        {% if server.Discord_Chat_Channel %}<option value="{{ server.Discord_Chat_Channel }}" selected>Current channel: {{ server.Discord_Chat_Channel }}</option>{% endif %}
+        {% for channel in discord_options.channels %}
+        <option value="{{ channel.id }}" {% if server.Discord_Chat_Channel|string == channel.id|string %}selected{% endif %}>{{ channel.name }}</option>
+        {% endfor %}
+      </select>
+      <small>Discord channel used for in-game chat relay.</small>
+    </label>
+    <label>Event channel
+      <select name="Discord_Event_Channel">
+        <option value="">Not set</option>
+        {% if server.Discord_Event_Channel %}<option value="{{ server.Discord_Event_Channel }}" selected>Current channel: {{ server.Discord_Event_Channel }}</option>{% endif %}
+        {% for channel in discord_options.channels %}
+        <option value="{{ channel.id }}" {% if server.Discord_Event_Channel|string == channel.id|string %}selected{% endif %}>{{ channel.name }}</option>
+        {% endfor %}
+      </select>
+      <small>Discord channel where server events are posted.</small>
+    </label>
+    <div class="panel-header full section-break"><h2>Console Filtering</h2></div>
+    <label>Console filter type
+      <select name="Console_Filtered_Type">
+        <option value="0" {% if server.Console_Filtered_Type == 0 %}selected{% endif %}>Blacklist</option>
+        <option value="1" {% if server.Console_Filtered_Type == 1 %}selected{% endif %}>Whitelist</option>
+      </select>
+      <small>Blacklist hides matching regex lines. Whitelist only allows matching regex lines.</small>
+    </label>
+    <div class="toggle-list">
+      <label><input type="checkbox" name="Console_Flag" {% if server.Console_Flag %}checked{% endif %}> Console output <span data-switch-label data-on="On" data-off="Off">{{ 'On' if server.Console_Flag else 'Off' }}</span> <small>On sends AMP console output to the selected console channel.</small></label>
+      <label><input type="checkbox" name="Console_Filtered" {% if server.Console_Filtered %}checked{% endif %}> Console filtering <span data-switch-label data-on="On" data-off="Off">{{ 'On' if server.Console_Filtered else 'Off' }}</span> <small>On applies this server's regex filters to console and event output.</small></label>
+    </div>
+    <p class="muted full autosave-note">No save button is needed here. Each change is saved as soon as you change it.</p>
+  </form>
+</section>
+</div>
+
+<div class="tab-panel" id="tab-posting">
+<section class="content-grid">
+  <div class="panel">
+    <div class="panel-header"><h2>Discord Posting Groups</h2></div>
+    <p class="muted">These groups decide where Gatekeeper posts the current display type. If Display is set to Discord Embeds, these channels receive embeds. If Display is set to Custom Banner Images, these channels receive banner images.</p>
+    <form class="stack" method="post" action="{{ url_for('server_banner_groups', instance_id=server.InstanceID) }}">
+      <label>Assign existing group
+        <select name="group_id">
+          {% for group in banner_groups %}
+          <option value="{{ group.ID }}">{{ group.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p class="muted">Assigning a server to a group decides which servers appear together in the same Discord posting set.</p>
+      <button class="button primary" name="action" value="assign">Assign Server</button>
+    </form>
+    <form class="stack" method="post" action="{{ url_for('server_banner_groups', instance_id=server.InstanceID) }}">
+      <label>Create new posting group<input name="group_name" placeholder="Minecraft Servers"></label>
+      <p class="muted">Create one group per Discord listing you want. Example: Public Servers, Staff Servers, Modded Servers.</p>
+      <button class="button" name="action" value="create">Create And Assign</button>
+    </form>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Posting Channels</h2></div>
+    <div class="reply-list">
+      {% for group in server_groups %}
+      <article>
+        <div class="split-row">
+          <strong>{{ group.name }}</strong>
+          <form method="post" action="{{ url_for('server_banner_groups', instance_id=server.InstanceID) }}">
+            <input type="hidden" name="group_id" value="{{ group.ID }}">
+            <button class="link-danger" name="action" value="remove">Remove Server</button>
+          </form>
+        </div>
+        <form class="stack" method="post" action="{{ url_for('server_banner_groups', instance_id=server.InstanceID) }}">
+          <input type="hidden" name="group_id" value="{{ group.ID }}">
+          <label>Discord posting channel
+            <select name="channel_ref">
+              {% for channel in discord_options.channels %}
+              <option value="{{ channel.guild_id }}:{{ channel.id }}">{{ channel.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <p class="muted">This is the Discord channel where this group posts or updates its server listing.</p>
+          <button class="button" name="action" value="add_channel">Add Channel</button>
+        </form>
+        <div class="chip-row">
+          {% for channel in group_channels.get(group.ID, []) %}
+          <form method="post" action="{{ url_for('server_banner_groups', instance_id=server.InstanceID) }}" class="chip-form">
+            <input type="hidden" name="channel_row_id" value="{{ channel.ID }}">
+            <span class="chip">#{{ channel.Discord_Channel_ID }} · guild {{ channel.Discord_Guild_ID }}</span>
+            <button class="link-danger" name="action" value="remove_channel">Remove</button>
+          </form>
+          {% else %}
+          <span class="muted">No Discord posting channels assigned.</span>
+          {% endfor %}
+        </div>
+      </article>
+      {% else %}
+      <p class="muted">This server is not assigned to any posting groups.</p>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+</div>
+
+{% if settings.Banner_Type|string == "1" %}
+<div class="tab-panel" id="tab-banners">
+<section class="content-grid">
+  <form class="panel wide form-grid autosave-form" method="post" action="{{ url_for('server_banner', instance_id=server.InstanceID) }}" data-autosave-url="{{ url_for('api_server_banner_setting', instance_id=server.InstanceID) }}">
+    <div class="panel-header full">
+      <h2>Custom Banner Appearance</h2>
+      <span class="autosave-state" data-autosave-state>Changes save automatically</span>
+    </div>
+    <label>Background image
+      <select name="background_path" id="bannerSelect">
+        <option value="">Default server background</option>
+        {% for file in banner_files %}
+        <option value="{{ file.path }}" data-preview="{{ file.url }}" {% if banner.background_path == file.path %}selected{% endif %}>{{ file.name }}</option>
+        {% endfor %}
+      </select>
+      <small>Image used behind the generated banner. Upload images below, then select them here.</small>
+    </label>
+    <div class="banner-picker-preview full">
+      {% for file in banner_files %}
+        {% if banner.background_path == file.path %}
+        <img id="bannerImagePreview" src="{{ file.url }}" alt="Selected banner preview">
+        {% endif %}
+      {% endfor %}
+      <span id="bannerImageEmpty" class="muted">Selected uploaded banners appear here.</span>
+    </div>
+    <div class="toggle-list full">
+      <label><input type="checkbox" name="Whitelist_disabled" {% if server.Whitelist_disabled %}checked{% endif %} data-autosave-url="{{ url_for('api_server_setting', instance_id=server.InstanceID) }}"> Whitelist text on banner <span data-switch-label data-on="Off" data-off="On">{{ 'Off' if server.Whitelist_disabled else 'On' }}</span> <small>Off hides the whitelist On/Off text on generated banner images.</small></label>
+    </div>
+    <label>Blur amount<input type="number" min="0" max="20" name="blur_background_amount" value="{{ banner.blur_background_amount or 0 }}"><small>Softens the background image so text is easier to read. 0 means no blur.</small></label>
+    <label>Header color<input type="color" name="color_header" value="{{ banner.color_header or '#85c1e9' }}"><small>Color for the main server title on generated banners.</small></label>
+    <label>Body color<input type="color" name="color_body" value="{{ banner.color_body or '#f2f3f4' }}"><small>Default text color for generated banner details.</small></label>
+    <label>Host color<input type="color" name="color_host" value="{{ banner.color_host or '#5dade2' }}"><small>Color used for the server host/address text.</small></label>
+    <label>Whitelist open color<input type="color" name="color_whitelist_open" value="{{ banner.color_whitelist_open or '#f7dc6f' }}"><small>Color shown when whitelist requests are open.</small></label>
+    <label>Whitelist closed color<input type="color" name="color_whitelist_closed" value="{{ banner.color_whitelist_closed or '#cb4335' }}"><small>Color shown when whitelist requests are closed.</small></label>
+    <label>Donator color<input type="color" name="color_donator" value="{{ banner.color_donator or '#212f3c' }}"><small>Color for donator-only status text.</small></label>
+    <label>Online color<input type="color" name="color_status_online" value="{{ banner.color_status_online or '#28b463' }}"><small>Color used when the server is online.</small></label>
+    <label>Offline color<input type="color" name="color_status_offline" value="{{ banner.color_status_offline or '#e74c3c' }}"><small>Color used when the server is offline.</small></label>
+    <label>Player low color<input type="color" name="color_player_limit_min" value="{{ banner.color_player_limit_min or '#ba4a00' }}"><small>Color near the low end of player count.</small></label>
+    <label>Player high color<input type="color" name="color_player_limit_max" value="{{ banner.color_player_limit_max or '#5dade2' }}"><small>Color near the high/full end of player count.</small></label>
+    <label>Player name color<input type="color" name="color_player_online" value="{{ banner.color_player_online or '#f7dc6f' }}"><small>Color used for names in the online player list.</small></label>
+    <p class="muted full autosave-note">Banner appearance changes save automatically. Uploads still use the upload button.</p>
+  </form>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Upload Banner Image</h2></div>
+    <form class="stack upload-box" method="post" enctype="multipart/form-data" action="{{ url_for('upload_banner', instance_id=server.InstanceID) }}">
+      <label>Image file
+        <input type="file" name="banner_image" accept=".png,.jpg,.jpeg,.webp,.gif,image/png,image/jpeg,image/webp,image/gif" required>
+      </label>
+      <label>Use uploaded image for
+        <select name="use_for">
+          <option value="banner">Custom banner background</option>
+          <option value="embed_image">Discord embed image</option>
+          <option value="embed_thumbnail">Discord embed thumbnail</option>
+          <option value="both">Banner background and embed image</option>
+        </select>
+      </label>
+      <button class="button primary" type="submit">Upload And Select</button>
+    </form>
+  </div>
+</section>
+</div>
+{% endif %}
+
+{% if settings.Banner_Type|string != "1" %}
+<div class="tab-panel" id="tab-embeds">
+<section class="content-grid">
+  <form class="panel form-grid autosave-form" method="post" data-autosave-url="{{ url_for('api_server_setting', instance_id=server.InstanceID) }}">
+    <input type="hidden" name="form_scope" value="embeds">
+    <div class="panel-header full">
+      <h2>Discord Embed Options</h2>
+      <span class="autosave-state" data-autosave-state>Changes save automatically</span>
+    </div>
+    <label>Embed color mode
+      <select name="Embed_Color_Mode" id="embedColorMode">
+        <option value="static" {% if (server.Embed_Color_Mode or 'static') == 'static' %}selected{% endif %}>Use one static color</option>
+        <option value="status" {% if server.Embed_Color_Mode == 'status' %}selected{% endif %}>Use status-based colors</option>
+        <option value="role" {% if server.Embed_Color_Mode == 'role' %}selected{% endif %}>Use Discord role color</option>
+      </select>
+      <small>Choose how the colored bar on the left side of the Discord embed is selected.</small>
+    </label>
+    <label class="embed-color-field" data-color-mode="static">Static embed color<input type="color" name="Embed_Color" value="{{ server.Embed_Color or preview.color }}" data-preview-source="color"><small>One fixed embed color, regardless of server status.</small></label>
+    <label class="embed-color-field" data-color-mode="role">Fallback role color<input type="color" name="Embed_Color_Role" value="{{ server.Embed_Color_Role or '#71368a' }}"><small>Used if the selected Discord role cannot be found.</small></label>
+    <label class="embed-color-field" data-color-mode="status">Dedicated server online color<input type="color" name="Embed_Color_Online" value="{{ server.Embed_Color_Online or '#2ecc71' }}"><small>Used when the dedicated game server is running.</small></label>
+    <label class="embed-color-field" data-color-mode="status">Dedicated server starting color<input type="color" name="Embed_Color_Starting" value="{{ server.Embed_Color_Starting or '#f1c40f' }}"><small>Used only when AMP reports the dedicated game server is starting or restarting.</small></label>
+    <label class="embed-color-field" data-color-mode="status">Dedicated server offline color<input type="color" name="Embed_Color_Offline" value="{{ server.Embed_Color_Offline or '#e74c3c' }}"><small>Used when the dedicated game server is offline.</small></label>
+    <div class="embed-color-field help-box full" data-color-mode="status">
+      <strong>What the status colors mean</strong>
+      <ul>
+        <li><b>Online</b>: The dedicated game server is running.</li>
+        <li><b>Starting</b>: AMP reports the dedicated game server is starting or restarting.</li>
+        <li><b>Offline</b>: The dedicated game server is offline.</li>
+      </ul>
+    </div>
+    <label>Embed thumbnail
+      <select name="Avatar_url" data-preview-source="thumb">
+        <option value="">Not set</option>
+        {% if server.Avatar_url %}<option value="{{ server.Avatar_url }}" selected>Current thumbnail</option>{% endif %}
+        {% for file in banner_files %}
+        <option value="{{ file.public_url }}">{{ file.name }}</option>
+        {% endfor %}
+      </select>
+      <small>Small square image in the top-right of the Discord embed. Upload an image first, then select it here.</small>
+    </label>
+    <label class="full">Embed image
+      <select name="Embed_Image_url" data-preview-source="image">
+        <option value="">Not set</option>
+        {% if server.Embed_Image_url %}<option value="{{ server.Embed_Image_url }}" selected>Current embed image</option>{% endif %}
+        {% for file in banner_files %}
+        <option value="{{ file.public_url }}">{{ file.name }}</option>
+        {% endfor %}
+      </select>
+      <small>Large image shown inside the Discord embed. Use the upload panel on this tab to add your own image.</small>
+    </label>
+    <label>Footer timezone
+      <input class="timezone-search" type="search" placeholder="Search or jump to timezone">
+      <select class="timezone-select" name="Embed_Footer_Timezone" size="8" data-current="{{ server.Embed_Footer_Timezone or 'UTC' }}" data-preview-source="footer-timezone">
+        {% for timezone in timezone_options %}
+        <option value="{{ timezone.value }}" data-offset="{{ timezone.offset_minutes }}" {% if (server.Embed_Footer_Timezone or 'UTC') == timezone.value %}selected{% endif %}>{{ timezone.label }}</option>
+        {% endfor %}
+      </select>
+      <small>Timezones are sorted by UTC offset. Type in the search box to jump to a timezone by name or offset.</small>
+    </label>
+    <label>Footer date/time format
+      <select name="Embed_Footer_Format" data-preview-source="footer-format">
+        <option value="%Y-%m-%d %I:%M %p %Z" {% if (server.Embed_Footer_Format or '%Y-%m-%d %I:%M %p %Z') == '%Y-%m-%d %I:%M %p %Z' %}selected{% endif %}>2026-05-13 02:30 PM EDT</option>
+        <option value="%m/%d/%Y %I:%M %p %Z" {% if server.Embed_Footer_Format == '%m/%d/%Y %I:%M %p %Z' %}selected{% endif %}>05/13/2026 02:30 PM EDT</option>
+        <option value="%A, %B %d, %Y %I:%M %p %Z" {% if server.Embed_Footer_Format == '%A, %B %d, %Y %I:%M %p %Z' %}selected{% endif %}>Wednesday, May 13, 2026 02:30 PM EDT</option>
+        <option value="%Y-%m-%d %H:%M %Z" {% if server.Embed_Footer_Format == '%Y-%m-%d %H:%M %Z' %}selected{% endif %}>2026-05-13 14:30 EDT</option>
+      </select>
+      <small>Discord does not render &lt;t:...&gt; inside embed footers, so the bot writes a normal readable timestamp here.</small>
+    </label>
+    <div class="toggle-list full">
+      <label><input type="checkbox" name="Embed_Donator_Hidden" {% if server.Embed_Donator_Hidden %}checked{% endif %}> Donator Only field <span data-switch-label data-on="Hidden" data-off="Visible">{{ 'Hidden' if server.Embed_Donator_Hidden else 'Visible' }}</span> <small>Hidden removes the Donator Only field from Discord embed listings.</small></label>
+      <label><input type="checkbox" name="Embed_Whitelist_Hidden" {% if server.Embed_Whitelist_Hidden %}checked{% endif %}> Whitelist Requests field <span data-switch-label data-on="Hidden" data-off="Visible">{{ 'Hidden' if server.Embed_Whitelist_Hidden else 'Visible' }}</span> <small>Hidden removes the Whitelist Requests field from Discord embed listings.</small></label>
+    </div>
+    <p class="muted full autosave-note">Embed settings save automatically. Uploads still use the upload button.</p>
+  </form>
+
+  <div class="panel media-panel">
+    <div class="panel-header"><h2>Embed Media</h2></div>
+    <div class="help-box">
+      <strong>Discord image guidance</strong>
+      <ul>
+        <li><b>Thumbnail</b>: square image, 256x256 to 512x512 works best.</li>
+        <li><b>Embed image</b>: 16:9 or 2:1 images work best. Keep width under 4096px.</li>
+        <li><b>Upload size</b>: this web UI caps uploads at 8 MB to stay practical for Discord embeds.</li>
+      </ul>
+    </div>
+    <form class="stack upload-box" method="post" enctype="multipart/form-data" action="{{ url_for('upload_banner', instance_id=server.InstanceID) }}">
+      <label>Image file
+        <input type="file" name="banner_image" accept=".png,.jpg,.jpeg,.webp,.gif,image/png,image/jpeg,image/webp,image/gif" required>
+        <small>Uploads an image and immediately selects it for the target below.</small>
+      </label>
+      <label>Use uploaded image for
+        <select name="use_for">
+          <option value="embed_image">Large embed image</option>
+          <option value="embed_thumbnail">Embed thumbnail</option>
+          <option value="both">Large embed image and banner background</option>
+        </select>
+      </label>
+      <button class="button primary" type="submit">Upload And Select</button>
+    </form>
+    <div class="thumbnail-editor">
+      <div class="panel-header"><h2>Thumbnail Editor</h2></div>
+      <p class="muted">Crop any image into a square thumbnail. The editor saves a 512x512 PNG and selects it as this server's embed thumbnail.</p>
+      <input id="thumbnailEditorFile" type="file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp">
+      <canvas id="thumbnailEditorCanvas" width="512" height="512"></canvas>
+      <div class="form-grid compact">
+        <label>Zoom<input id="thumbnailZoom" type="range" min="1" max="3" step="0.05" value="1"></label>
+        <label>Horizontal<input id="thumbnailOffsetX" type="range" min="-256" max="256" step="1" value="0"></label>
+        <label>Vertical<input id="thumbnailOffsetY" type="range" min="-256" max="256" step="1" value="0"></label>
+      </div>
+      <form method="post" action="{{ url_for('upload_edited_thumbnail', instance_id=server.InstanceID) }}">
+        <input type="hidden" id="editedThumbnailData" name="edited_thumbnail">
+        <button class="button primary" type="submit">Save Edited Thumbnail</button>
+      </form>
+    </div>
+  </div>
+</section>
+
+<section class="content-grid preview-grid">
+  <div class="panel">
+    <div class="panel-header"><h2>Discord Server Info Preview</h2></div>
+    <article class="discord-embed" data-preview-kind="info">
+      <div class="embed-color" data-preview-color></div>
+      <div class="embed-body">
+        <div class="embed-title" data-preview-title>{{ preview.title }}</div>
+        <p>{{ preview.description }}</p>
+        <div class="embed-fields">
+          {% for name, value, inline in preview.info_fields %}
+          <div class="embed-field {% if inline %}inline{% endif %}">
+            <strong>{{ name }}</strong>
+            <span data-preview-field="{{ name }}">{{ value }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        <footer data-preview-footer>{{ preview.footer }}</footer>
+      </div>
+      <img class="embed-thumb" src="{{ preview.thumbnail or '' }}" alt="" data-preview-thumb {% if not preview.thumbnail %}hidden{% endif %}>
+      <img class="embed-image" src="{{ preview.image or '' }}" alt="" data-preview-image {% if not preview.image %}hidden{% endif %}>
+    </article>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Discord Banner Group Embed Preview</h2></div>
+    <article class="discord-embed" data-preview-kind="display">
+      <div class="embed-color purple" data-preview-color></div>
+      <div class="embed-body">
+        <div class="embed-title" data-preview-title>======= {{ server_name(server) }} =======</div>
+        <p>{{ preview.description }}</p>
+        <div class="embed-fields">
+          {% for name, value, inline in preview.display_fields %}
+          <div class="embed-field {% if inline %}inline{% endif %}">
+            <strong>{{ name }}</strong>
+            <span data-preview-field="{{ name }}">{{ value }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        <footer data-preview-footer>{{ preview.footer }}</footer>
+      </div>
+      <img class="embed-thumb" src="{{ preview.thumbnail or '' }}" alt="" data-preview-thumb {% if not preview.thumbnail %}hidden{% endif %}>
+      <img class="embed-image" src="{{ preview.image or '' }}" alt="" data-preview-image {% if not preview.image %}hidden{% endif %}>
+    </article>
+  </div>
+</section>
+</div>
+{% endif %}
+
+<div class="tab-panel" id="tab-regex">
+<section class="panel">
+  <div class="panel-header"><h2>Assigned Regex Filters</h2></div>
+  <div class="chip-row">
+    {% for item in regex %}
+    <span class="chip">{{ item.Name }} · {{ 'Console' if item.Type == 0 else 'Events' }}</span>
+    {% else %}
+    <p class="muted">No regex filters assigned.</p>
+    {% endfor %}
+  </div>
+</section>
+</div>
+{% endblock %}

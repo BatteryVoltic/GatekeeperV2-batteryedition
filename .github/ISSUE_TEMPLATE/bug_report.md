@@ -1,13 +1,19 @@
 ---
 name: Bug report
-about: Create a report to help us improve
+about: Report a GatekeeperV2 Battery Edition issue
 title: ''
 labels: bug
-assignees: k8thekat
+assignees: ''
 
 ---
 
 # Information [REQUIRED]
+
+### **Which Gatekeeper build?**
+Battery Edition version, branch, or commit if known.
+
+### **How are you running it?**
+AMP Python App Runner, local Python, Docker, or another method.
 
 ### **Which Server Type?**
 The drop down value when making the instance *eg. Minecraft or VRising*

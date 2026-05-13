@@ -42,6 +42,15 @@ class ServerButton(Button):
         self.label = self.callback_label
         self.disabled = self.callback_disabled
         self._function()
+        if self._label in ["Start", "Restart"]:
+            if hasattr(self.server, "markADSStarting"):
+                self.server.markADSStarting()
+            else:
+                self.server.ADS_Running = False
+                self.server.ADS_Starting = True
+        elif self._label in ["Stop", "Kill"]:
+            self.server.ADS_Running = False
+            self.server.ADS_Starting = False
         await interaction.response.edit_message(view=self._view)
         await asyncio.sleep(30)
         await self.reset()
@@ -339,6 +348,17 @@ class Whitelist_view(View):
         self.add_item(Accept_Whitelist_Button(discord_message=discord_message, view=self, client=client, amp_server=amp_server))
         self.add_item(Deny_Whitelist_Button(discord_message=discord_message, view=self, client=client, amp_server=amp_server))
 
+    def _uses_player_id(self):
+        whitelist_cog = self._client.get_cog("Whitelist")
+        if whitelist_cog != None:
+            return whitelist_cog.whitelist_request_uses_player_id(self._amp_server)
+        module = str(getattr(self._amp_server, "Module", "") or "").lower()
+        display_source = str(getattr(self._amp_server, "DisplayImageSource", "") or "").lower()
+        return not (module == "minecraft" or "minecraft" in display_source)
+
+    def _player_id_label(self):
+        return "SteamID64"
+
     async def _whitelist_handler(self):
         db_server = self.DB.GetServer(self._amp_server.InstanceID)
         self.logger.dev(f'Whitelist Request; Attempting to Whitelist {self._whitelist_message.author.name} on {db_server.FriendlyName}')
@@ -347,6 +367,16 @@ class Whitelist_view(View):
             discord_role = self._client.uBot.role_parse(db_server.Discord_Role, self._context, self._context.guild.id)
             discord_user = self._client.uBot.user_parse(self._context.author.id, self._context, self._context.guild.id)
             await discord_user.add_roles(discord_role, reason='Auto Whitelisting')
+
+        if self._uses_player_id():
+            db_user = self.DB.GetUser(self._context.author.id)
+            player_id_label = self._player_id_label()
+            player_id = db_user.SteamID if db_user != None else "unknown"
+            await self._context.message.channel.send(
+                content=f'{self._context.author.mention} your whitelist request for **{db_server.FriendlyName}** was approved. Staff now has your {player_id_label}: `{player_id}`.',
+                delete_after=self._client.Message_Timeout,
+            )
+            return
 
         # This is for all the Replies
         if len(self.DB.GetAllWhitelistReplies()) != 0:
@@ -371,7 +401,8 @@ class Accept_Whitelist_Button(Button):
             self._view.logger.info(f'We Accepted a Whitelist Request by {self._view._whitelist_message.author.name}')
             await self._discord_message.edit(content=f'**{interaction.user.name}** -> Approved __{self._view._whitelist_message.author.name}__ Whitelist Request', view=None)
             await self._view._whitelist_handler()
-            self._amp_server.addWhitelist(self._client.Whitelist_wait_list[self._view._whitelist_message.id]['dbuser'])
+            if not self._view._uses_player_id():
+                self._amp_server.addWhitelist(self._client.Whitelist_wait_list[self._view._whitelist_message.id]['dbuser'])
             self._client.Whitelist_wait_list.pop(self._view._whitelist_message.id)
             self.disabled = True
 
@@ -393,6 +424,89 @@ class Deny_Whitelist_Button(Button):
             await self._view._whitelist_message.channel.send(content=f'**{interaction.user.name}** Denied {self._view._whitelist_message.author.mention} whitelist request. Please contact a Staff Member.')
             self._client.Whitelist_wait_list.pop(self._view._whitelist_message.id)
             self.disabled = True
+
+
+class Whitelist_Request_Modal(discord.ui.Modal):
+    """Collects missing player information for a public whitelist request button."""
+
+    def __init__(self, client: discord.Client, instance_id: str, server_name: str, request_type: str = "minecraft"):
+        super().__init__(title=f"Whitelist Request - {server_name}"[:45])
+        self._client = client
+        self._instance_id = instance_id
+        self._request_type = request_type
+        if request_type == "steam":
+            label = "SteamID64"
+            placeholder = "SteamID64 only. Help: https://steamid.io/lookup"
+            max_length = 32
+        else:
+            label = "Minecraft in-game name"
+            placeholder = "Enter your exact Minecraft username"
+            max_length = 32
+        self.player_id = discord.ui.TextInput(
+            label=label,
+            placeholder=placeholder,
+            max_length=max_length,
+            required=True,
+        )
+        self.add_item(self.player_id)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        whitelist_cog = self._client.get_cog("Whitelist")
+        if whitelist_cog == None:
+            return await interaction.response.send_message("Whitelist requests are not available right now.", ephemeral=True)
+        value = str(self.player_id.value).strip()
+        await whitelist_cog.whitelist_request_from_interaction(
+            interaction=interaction,
+            instance_id=self._instance_id,
+            ign=value if self._request_type == "minecraft" else None,
+            steam_id=value if self._request_type != "minecraft" else None,
+        )
+
+
+class Whitelist_Request_Button(Button):
+    """Lets any user request whitelist access from a server display listing."""
+
+    def __init__(self, client: discord.Client, amp_server: AMP_Handler.AMP.AMPInstance, db_user=None):
+        server_name = amp_server.FriendlyName if amp_server.FriendlyName != None else amp_server.InstanceName
+        super().__init__(
+            label=f"Request Whitelist: {server_name}"[:80],
+            style=discord.ButtonStyle.blurple,
+            custom_id=f"whitelist_request:{amp_server.InstanceID}",
+        )
+        self._client = client
+        self._amp_server = amp_server
+        self._server_name = server_name
+        self._db_user = db_user
+
+    async def callback(self, interaction: discord.Interaction):
+        whitelist_cog = self._client.get_cog("Whitelist")
+        if whitelist_cog == None:
+            return await interaction.response.send_message("Whitelist requests are not available right now.", ephemeral=True)
+
+        if whitelist_cog.whitelist_request_needs_form(discord_user=interaction.user, server=self._amp_server):
+            request_type = "minecraft" if whitelist_cog.whitelist_request_is_minecraft_server(self._amp_server) else "steam"
+            return await interaction.response.send_modal(
+                Whitelist_Request_Modal(
+                    client=self._client,
+                    instance_id=self._amp_server.InstanceID,
+                    server_name=self._server_name,
+                    request_type=request_type,
+                )
+            )
+
+        await whitelist_cog.whitelist_request_from_interaction(
+            interaction=interaction,
+            instance_id=self._amp_server.InstanceID,
+        )
+
+
+class Whitelist_Request_Server_View(View):
+    """Server display view containing whitelist request buttons for eligible servers."""
+
+    def __init__(self, client: discord.Client, amp_servers: list[AMP_Handler.AMP.AMPInstance], timeout: float = None):
+        super().__init__(timeout=timeout)
+        for amp_server in amp_servers[:25]:
+            self.add_item(Whitelist_Request_Button(client=client, amp_server=amp_server))
 
 
 class DB_Instance_ID_Swap(View):

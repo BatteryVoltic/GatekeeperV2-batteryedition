@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="login-panel">
+  <div>
+    <span class="eyebrow">First Time Setup</span>
+    <h1>Create Web Login</h1>
+    <p>Create the account used to access the Gatekeeper web panel. There is no default username or password on fresh installs.</p>
+  </div>
+  <form method="post" class="stack">
+    <label>Username
+      <input name="username" autocomplete="username" required>
+    </label>
+    <label>Password
+      <input name="password" type="password" autocomplete="new-password" required minlength="6">
+    </label>
+    <label>Confirm password
+      <input name="confirm_password" type="password" autocomplete="new-password" required minlength="6">
+    </label>
+    <button class="button primary" type="submit">Create Login</button>
+  </form>
+</section>
+{% endblock %}

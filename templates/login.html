@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="login-panel">
+  <div>
+    <span class="eyebrow">Gatekeeper V2</span>
+    <h1>Sign in</h1>
+    <p>Manage servers, bot settings, users, filters, and whitelist flow from one place.</p>
+  </div>
+  <form method="post" class="stack">
+    <label>Username
+      <input name="username" autocomplete="username" required>
+    </label>
+    <label>Password
+      <input name="password" type="password" autocomplete="current-password" required>
+    </label>
+    <button class="button primary" type="submit">Log In</button>
+    <p class="muted">Use the web login created during first-time setup.</p>
+  </form>
+</section>
+{% endblock %}

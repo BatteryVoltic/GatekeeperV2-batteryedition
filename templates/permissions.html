@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-header">
+  <div><span class="eyebrow">Custom</span><h1>Permissions</h1></div>
+  <span class="status-pill {{ 'good' if current.Permissions|string == 'Custom' else 'warn' }}">{{ current.Permissions or 'Default' }}</span>
+</header>
+
+<section class="panel narrow">
+  <div class="panel-header"><h2>Add Permission Role</h2></div>
+  <p class="muted">Permission roles control what bot actions a user can run when Bot Settings is set to Custom permissions. User role assignment now lives on the Users page.</p>
+  <form class="stack" method="post">
+    <input type="hidden" name="action" value="add_role">
+    <label>Role name<input name="name" placeholder="Senior Mod"><small>Friendly name shown in the web UI and stored on users.</small></label>
+    <button class="button primary" type="submit">Add Role</button>
+  </form>
+  <p class="muted">Custom permissions are active only when Bot Settings → Permissions is set to Custom.</p>
+</section>
+
+<section class="permission-role-list">
+  {% for role in roles %}
+  <form class="panel permission-role" method="post">
+    <input type="hidden" name="role_index" value="{{ loop.index0 }}">
+    <div class="panel-header">
+      <h2>{{ role.name }}</h2>
+      <button class="link-danger" name="action" value="delete_role" type="submit">Delete</button>
+    </div>
+    <div class="form-grid">
+      <label>Name<input name="name" value="{{ role.name }}"><small>Friendly permission role name.</small></label>
+      <label>Discord role
+        <select name="discord_role_id">
+          <option value="None" {% if role.discord_role_id == "None" %}selected{% endif %}>None</option>
+          {% if role.discord_role_id != "None" %}<option value="{{ role.discord_role_id }}" selected>Current: {{ role.discord_role_id }}</option>{% endif %}
+          {% for discord_role in discord_options.roles %}
+          <option value="{{ discord_role.id }}" {% if role.discord_role_id|string == discord_role.id|string %}selected{% endif %}>{{ discord_role.name }}</option>
+          {% endfor %}
+        </select>
+        <small>Optional Discord role that maps users into this permission role automatically.</small>
+      </label>
+      <label>Chat prefix<input name="prefix" value="{{ role.prefix }}"><small>Optional prefix shown for users with this role. Use None if not needed.</small></label>
+      <label>Custom allow/deny nodes
+        <textarea name="custom_permissions" rows="5" placeholder="server.my_custom_node&#10;-server.kill">{% for item in role.permissions if item not in permission_nodes %}{{ item }}
+{% endfor %}</textarea>
+        <small>Advanced. Add one permission node per line. Prefix with - to deny a permission.</small>
+      </label>
+    </div>
+    <div class="permission-category-list">
+      <p class="muted">Turn on the actions this role can use. Deny nodes block that action even if a broader wildcard such as server.* allows it.</p>
+      {% for group in permission_groups %}
+      {% if group.nodes %}
+      <details class="permission-category" open>
+        <summary>
+          <span>
+            <strong>{{ group.title }}</strong>
+            <small>{{ group.description }}</small>
+          </span>
+          <em>{{ group.nodes|length }} permissions</em>
+        </summary>
+        <div class="permission-node-grid">
+          {% for node in group.nodes %}
+          <label class="permission-node">
+            <input type="checkbox" name="permissions" value="{{ node }}" {% if node in role.permissions %}checked{% endif %}>
+            <span>{{ permission_label(node) }}<small>{{ node }}</small></span>
+          </label>
+          {% endfor %}
+        </div>
+      </details>
+      {% endif %}
+      {% endfor %}
+    </div>
+    <button class="button primary" name="action" value="save_role" type="submit">Save {{ role.name }}</button>
+  </form>
+  {% endfor %}
+</section>
+{% endblock %}

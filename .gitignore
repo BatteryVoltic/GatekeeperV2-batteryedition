@@ -1,6 +1,7 @@
 __pycache__
 logs
 tokens.py
+web_config.json
 todo.txt
 *.db
 /dev

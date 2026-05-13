@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-header">
+  <div><span class="eyebrow">Global</span><h1>Display Settings</h1></div>
+</header>
+
+<section class="content-grid">
+  <form class="panel stack" method="post">
+    <div class="panel-header"><h2>Discord Embed Or Banner Mode</h2></div>
+    <label>Display type
+      <select name="Banner_Type" id="displayModeSelect">
+        <option value="0" {% if current.Banner_Type|string in ["0", "Discord Embeds"] %}selected{% endif %}>Discord Embeds</option>
+        <option value="1" {% if current.Banner_Type|string == "1" %}selected{% endif %}>Custom Banner Images</option>
+      </select>
+      <small>Choose what Gatekeeper posts to Discord for server listings. Embed mode uses Discord embed cards. Banner mode uses generated image attachments.</small>
+    </label>
+    <label>Update interval seconds
+      <input type="number" min="15" name="Banner_Update_Interval" value="{{ current.Banner_Update_Interval or 60 }}">
+      <small>The bot uses this interval directly. Minimum allowed is 15 seconds. Recommended: 60 seconds or higher for normal use; use 120-300 seconds for large setups.</small>
+    </label>
+    <label>Discord timestamp format
+      <select name="Banner_Timestamp_Format">
+        <option value="f" {% if (current.Banner_Timestamp_Format or 'f') == 'f' %}selected{% endif %}>Date and time: &lt;t:1778462820:f&gt;</option>
+        <option value="F" {% if current.Banner_Timestamp_Format == 'F' %}selected{% endif %}>Long date and time: &lt;t:1778462820:F&gt;</option>
+        <option value="R" {% if current.Banner_Timestamp_Format == 'R' %}selected{% endif %}>Relative time: &lt;t:1778462820:R&gt;</option>
+        <option value="t" {% if current.Banner_Timestamp_Format == 't' %}selected{% endif %}>Short time: &lt;t:1778462820:t&gt;</option>
+        <option value="T" {% if current.Banner_Timestamp_Format == 'T' %}selected{% endif %}>Long time: &lt;t:1778462820:T&gt;</option>
+        <option value="d" {% if current.Banner_Timestamp_Format == 'd' %}selected{% endif %}>Short date: &lt;t:1778462820:d&gt;</option>
+        <option value="D" {% if current.Banner_Timestamp_Format == 'D' %}selected{% endif %}>Long date: &lt;t:1778462820:D&gt;</option>
+      </select>
+      <small>Discord renders this in each viewer's local timezone. The default is &lt;t:1778462820:f&gt;.</small>
+    </label>
+    <label>Banner timezone
+      <input name="Banner_Timezone" value="{{ current.Banner_Timezone or 'UTC' }}">
+      <small>Used by generated banner image time text. Server embed footers have their own per-server timezone setting in each server's Discord Embeds tab.</small>
+    </label>
+    <label class="toggle"><input type="checkbox" name="Banner_Use_12Hour" {% if current.Banner_Use_12Hour|string in ["1", "True", "true"] %}checked{% endif %}> Use 12-hour time on generated banner images</label>
+    <label class="toggle"><input type="checkbox" name="Banner_Auto_Update" {% if current.Banner_Auto_Update|string in ["1", "True", "true"] %}checked{% endif %}> Auto update Discord messages</label>
+    <label class="toggle"><input type="checkbox" name="Auto_BG_Remove" {% if current.Auto_BG_Remove|string in ["1", "True", "true"] %}checked{% endif %}> Remove missing AMP servers from banner groups</label>
+    <button class="button primary" type="submit">Save Display Settings</button>
+  </form>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Current Mode</h2></div>
+    <dl>
+      <div><dt>Type</dt><dd>{{ 'Custom Banner Images' if current.Banner_Type|string == '1' else 'Discord Embeds' }}</dd></div>
+      <div><dt>Auto update</dt><dd>{{ 'On' if current.Banner_Auto_Update|string in ["1", "True", "true"] else 'Off' }}</dd></div>
+      <div><dt>Interval</dt><dd>{{ effective_interval }} seconds</dd></div>
+    </dl>
+  </div>
+</section>
+
+<section class="content-grid">
+  <div class="panel mode-panel" data-display-mode="0">
+    <div class="panel-header"><h2>Embed Mode</h2></div>
+    <p class="muted">Server pages will show Discord embed controls and hide custom banner controls. Discord messages are edited as embeds.</p>
+  </div>
+  <div class="panel mode-panel" data-display-mode="1">
+    <div class="panel-header"><h2>Banner Image Mode</h2></div>
+    <p class="muted">Server pages will show custom banner image controls and hide Discord embed controls. Discord messages are edited with generated image attachments.</p>
+  </div>
+  <div class="panel">
+    <div class="panel-header"><h2>Discord API Limits</h2></div>
+    <p class="muted">The bot will post/update at the interval you set above. Discord documents a 50 requests-per-second global bot limit, but per-route limits vary. Keep the interval at 60 seconds or higher unless you have very few messages. Use 120 seconds for several messages, and 300 seconds or higher for large setups.</p>
+  </div>
+</section>
+{% endblock %}

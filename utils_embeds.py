@@ -22,10 +22,117 @@ from __future__ import annotations
 import logging
 import discord
 from discord.ext import commands
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import DB
 import AMP_Handler
 import utils
+
+
+def _discord_timestamp(db_config) -> str:
+    timestamp_format = db_config.GetSetting("Banner_Timestamp_Format") or "f"
+    if timestamp_format not in ["t", "T", "d", "D", "f", "F", "R"]:
+        timestamp_format = "f"
+    return f"<t:{int(datetime.now().timestamp())}:{timestamp_format}>"
+
+
+def _server_embed_footer(db_server) -> str:
+    """Embed footers do not render Discord timestamp tokens, so use readable text."""
+    tz_name = getattr(db_server, "Embed_Footer_Timezone", None) or "UTC"
+    fmt = getattr(db_server, "Embed_Footer_Format", None) or "%Y-%m-%d %I:%M %p %Z"
+    try:
+        return datetime.now(ZoneInfo(tz_name)).strftime(fmt)
+    except Exception:
+        try:
+            import pytz
+
+            return datetime.now(pytz.timezone(tz_name)).strftime(fmt)
+        except Exception:
+            fallback_tz = _fallback_timezone(tz_name)
+            return datetime.now(fallback_tz).strftime(fmt)
+
+
+def _fallback_timezone(tz_name: str):
+    now = datetime.utcnow()
+    dst = _is_us_dst(now)
+    zones = {
+        "UTC": (0, "UTC"),
+        "America/New_York": (-4 if dst else -5, "EDT" if dst else "EST"),
+        "America/Chicago": (-5 if dst else -6, "CDT" if dst else "CST"),
+        "America/Denver": (-6 if dst else -7, "MDT" if dst else "MST"),
+        "America/Los_Angeles": (-7 if dst else -8, "PDT" if dst else "PST"),
+        "America/Phoenix": (-7, "MST"),
+    }
+    offset, name = zones.get(tz_name, zones["UTC"])
+    return timezone(timedelta(hours=offset), name)
+
+
+def _is_us_dst(now_utc: datetime) -> bool:
+    year = now_utc.year
+    march_first = datetime(year, 3, 1)
+    november_first = datetime(year, 11, 1)
+    second_sunday_march = 14 - march_first.weekday() if march_first.weekday() != 6 else 8
+    first_sunday_november = 7 - november_first.weekday() if november_first.weekday() != 6 else 1
+    start = datetime(year, 3, second_sunday_march, 7)
+    end = datetime(year, 11, first_sunday_november, 6)
+    return start <= now_utc < end
+
+
+def _hex_to_color(value, fallback=0x71368a):
+    if value in [None, "", "None"]:
+        return fallback
+    try:
+        return int(str(value).strip().lstrip("#"), 16)
+    except ValueError:
+        return fallback
+
+
+def _embed_color(db_server, fallback=0x71368a, server=None):
+    mode = getattr(db_server, "Embed_Color_Mode", "static")
+    if mode == "role":
+        return fallback
+    if mode == "status" and server is not None:
+        # Status color follows the dedicated game server status, not just the AMP instance.
+        if _server_starting(server):
+            return _hex_to_color(getattr(db_server, "Embed_Color_Starting", None), fallback)
+        if getattr(server, "ADS_Running", False):
+            return _hex_to_color(getattr(db_server, "Embed_Color_Online", None), fallback)
+        return _hex_to_color(getattr(db_server, "Embed_Color_Offline", None), fallback)
+    return _hex_to_color(getattr(db_server, "Embed_Color", None), fallback)
+
+
+def _server_starting(server) -> bool:
+    if bool(getattr(server, "ADS_Starting", False)):
+        return True
+    for attr in ("ADS_State", "AppState", "State", "Status", "ApplicationState", "ApplicationStateName"):
+        raw = getattr(server, attr, "") or ""
+        if isinstance(raw, dict):
+            for key in ("State", "state", "Value", "value", "Name", "name"):
+                if key in raw:
+                    raw = raw[key]
+                    break
+        value = str(raw).lower()
+        try:
+            if int(float(value)) in {5, 7, 10, 30, 100, 110}:
+                return True
+        except ValueError:
+            pass
+        if any(word in value for word in ["starting", "restarting", "loading", "initializing"]):
+            return True
+    return False
+
+
+def _status_text(is_online: bool, starting: bool = False) -> str:
+    if starting:
+        return "🟡 Starting"
+    if is_online:
+        return "✅ Online"
+    return "❌ Offline"
+
+
+def _on_off(value) -> str:
+    return "✅ On" if bool(value) else "❌ Off"
 
 
 class botEmbeds():
@@ -59,7 +166,7 @@ class botEmbeds():
         if db_server.DisplayName != None:
             server_name = db_server.DisplayName
 
-        embed = discord.Embed(title=f'__**{server_name}**__ - {[server.TargetName]}', color=0x00ff00, description=server.Description)
+        embed = discord.Embed(title=f'__**{server_name}**__ - {[server.TargetName]}', color=_embed_color(db_server, 0x00ff00, server), description=server.Description)
 
         discord_role = db_server.Discord_Role
         if discord_role != None:
@@ -68,10 +175,14 @@ class botEmbeds():
         avatar = await self.uBot.validate_avatar(db_server)
         if avatar != None:
             embed.set_thumbnail(url=avatar)
+        if getattr(db_server, "Embed_Image_url", None) not in [None, "", "None"]:
+            embed.set_image(url=db_server.Embed_Image_url)
 
         embed.add_field(name=f'Host:', value=str(db_server.Host), inline=False)
-        embed.add_field(name='Donator Only:', value=str(bool(db_server.Donator)), inline=True)
-        embed.add_field(name='Whitelist Open:', value=str(bool(db_server.Whitelist)), inline=True)
+        if not getattr(db_server, "Embed_Donator_Hidden", 0):
+            embed.add_field(name='Donator Only:', value=str(bool(db_server.Donator)), inline=True)
+        if not getattr(db_server, "Embed_Whitelist_Hidden", 0):
+            embed.add_field(name='Whitelist Open:', value=str(bool(db_server.Whitelist)), inline=True)
         embed.add_field(name='Role:', value=str(discord_role), inline=False)
         embed.add_field(name='Hidden', value=bool(db_server.Hidden), inline=True)
         embed.add_field(name='Whitelist Hidden', value=bool(db_server.Whitelist_disabled), inline=True)
@@ -115,25 +226,29 @@ class botEmbeds():
             if db_server == None or db_server.Hidden == 1:
                 continue
 
-            instance_status = '\U0000274c Offline'
-            dedicated_status = 'Offline'
+            instance_status = _status_text(False)
+            dedicated_status = _status_text(False)
             Users = None
             User_list = None
             # This is for the Instance
             if server.Running:
-                instance_status = 'Online'
+                instance_status = _status_text(True)
                 # ADS AKA Application status
-                if server._ADScheck() and server.ADS_Running:
-                    dedicated_status = 'Online'
+                ads_live = server._ADScheck()
+                if _server_starting(server):
+                    dedicated_status = _status_text(False, starting=True)
+                elif ads_live and server.ADS_Running:
+                    dedicated_status = _status_text(True)
                     Users = server.getUsersOnline()
                     if len(server.getUserList()) >= 1:
                         User_list = (', ').join(server.getUserList())
 
-            embed_color = 0x71368a
+            embed_color = _hex_to_color(getattr(db_server, "Embed_Color_Role", None), 0x71368a)
             if guild != None and db_server.Discord_Role != None:
                 db_server_role = guild.get_role(int(db_server.Discord_Role))
                 if db_server_role != None:
                     embed_color = db_server_role.color
+            embed_color = _embed_color(db_server, embed_color, server)
 
             server_name = server.FriendlyName
             if server.DisplayName != None:
@@ -144,17 +259,21 @@ class botEmbeds():
             avatar = await self.uBot.validate_avatar(db_server)
             if avatar != None:
                 embed.set_thumbnail(url=avatar)
+            if getattr(db_server, "Embed_Image_url", None) not in [None, "", "None"]:
+                embed.set_image(url=db_server.Embed_Image_url)
             embed.add_field(name='**Instance Status**:', value=instance_status, inline=False)
             embed.add_field(name='**Dedicated Server Status**:', value=dedicated_status, inline=False)
             embed.add_field(name='**Host**:', value=str(db_server.Host), inline=True)
-            embed.add_field(name='**Donator Only**:', value=str(bool(db_server.Donator)), inline=True)
-            embed.add_field(name='**Whitelist Open**:', value=str(bool(db_server.Whitelist)), inline=True)
+            if not getattr(db_server, "Embed_Donator_Hidden", 0):
+                embed.add_field(name='**Donator Only**:', value=_on_off(db_server.Donator), inline=True)
+            if not getattr(db_server, "Embed_Whitelist_Hidden", 0):
+                embed.add_field(name='**Whitelist Requests**:', value=_on_off(db_server.Whitelist), inline=True)
             if Users != None:
                 embed.add_field(name=f'**Players**:', value=f'{Users[0]}/{Users[1]}', inline=True)
             else:
                 embed.add_field(name='**Player Limit**:', value=str(Users), inline=True)
             embed.add_field(name='**Players Online**:', value=str(User_list), inline=False)
-            embed.set_footer(text=discord.utils.utcnow().strftime('%Y-%m-%d | %H:%M') + " UTC")
+            embed.set_footer(text=_server_embed_footer(db_server))
             embed_list.append(embed)
 
         return embed_list
@@ -164,20 +283,28 @@ class botEmbeds():
         db_server = self.DB.GetServer(InstanceID=server.InstanceID)
 
         if server.Running:
-            instance_status = 'Online'
+            instance_status = _status_text(True)
         else:
-            instance_status = 'Offline'
+            instance_status = _status_text(False)
 
-        if server.ADS_Running:
-            server_status = 'Online'
+        try:
+            server._ADScheck()
+        except Exception:
+            pass
+
+        if _server_starting(server):
+            server_status = _status_text(False, starting=True)
+        elif server.ADS_Running:
+            server_status = _status_text(True)
         else:
-            server_status = 'Offline'
+            server_status = _status_text(False)
 
-        embed_color = 0x71368a
+        embed_color = _hex_to_color(getattr(db_server, "Embed_Color_Role", None), 0x71368a)
         if db_server.Discord_Role != None:
             db_server_role = context.guild.get_role(int(db_server.Discord_Role))
             if db_server_role != None:
                 embed_color = db_server_role.color
+        embed_color = _embed_color(db_server, embed_color, server)
 
         server_name = server.FriendlyName
         if server.DisplayName != None:
@@ -188,6 +315,8 @@ class botEmbeds():
         avatar = await self.uBot.validate_avatar(db_server)
         if avatar != None:
             embed.set_thumbnail(url=avatar)
+        if getattr(db_server, "Embed_Image_url", None) not in [None, "", "None"]:
+            embed.set_image(url=db_server.Embed_Image_url)
 
         embed.add_field(name='**Dedicated Server Status**:', value=server_status, inline=True)
 
@@ -195,11 +324,13 @@ class botEmbeds():
             embed.add_field(name=f'Host: ', value=db_server.Host, inline=True)
 
         # embed.add_field(name='\u1CBC\u1CBC',value='\u1CBC\u1CBC',inline=False)
-        embed.add_field(name='Donator Only:', value=str(bool(db_server.Donator)), inline=True)
-        embed.add_field(name='Whitelist Open:', value=str(bool(db_server.Whitelist)), inline=True)
+        if not getattr(db_server, "Embed_Donator_Hidden", 0):
+            embed.add_field(name='Donator Only:', value=_on_off(db_server.Donator), inline=True)
+        if not getattr(db_server, "Embed_Whitelist_Hidden", 0):
+            embed.add_field(name='Whitelist Requests:', value=_on_off(db_server.Whitelist), inline=True)
         # embed.add_field(name='\u1CBC\u1CBC',value='\u1CBC\u1CBC',inline=False) #This Generates a BLANK Field entirely.
 
-        if server.ADS_Running:
+        if server.ADS_Running and not _server_starting(server):
             embed.add_field(name='TPS', value=TPS, inline=True)
             embed.add_field(name='Player Count', value=f'{Users[0]}/{Users[1]}', inline=True)
             embed.add_field(name='Memory Usage', value=f'{Memory[0]}/{Memory[1]}', inline=True)
@@ -354,7 +485,7 @@ class botEmbeds():
                 embed.add_field(name='Minecraft UUID:', value=f'{db_user.MC_UUID}', inline=True)
 
             if db_user.SteamID != None:
-                embed.add_field(name='Steam ID:', value=f'{db_user.SteamID}', inline=False)
+                embed.add_field(name='SteamID64:', value=f'{db_user.SteamID}', inline=False)
 
             if db_user.Role != None:
                 embed.add_field(name='Permission Role:', value=f'{db_user.Role}', inline=False)

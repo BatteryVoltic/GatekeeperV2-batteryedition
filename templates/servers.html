@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-header">
+  <div><span class="eyebrow">Servers</span><h1>Manage AMP Servers</h1></div>
+  <span class="status-pill {{ 'good' if live_ok else 'warn' }}">{{ 'Live actions ready' if live_ok else 'Settings only' }}</span>
+</header>
+<section class="server-grid">
+  {% for server in servers %}
+  {% set status = live_statuses.get(server.InstanceID, {}) %}
+  <article class="server-card">
+    <div class="server-card-top">
+      <div><h2>{{ server_name(server) }}</h2><p>{{ server.InstanceName or server.InstanceID }}</p></div>
+    </div>
+    <div class="status-stack">
+      <div><span class="dot {{ 'on' if status.amp_connected else 'off' }}"></span><strong>AMP</strong><span>{{ 'Connected' if status.amp_connected else 'Not connected' }}</span></div>
+      <div><span class="dot {{ 'on' if status.container_online else 'off' }}"></span><strong>Container</strong><span>{{ 'Online' if status.container_online else 'Offline' }}</span></div>
+      <div><span class="dot {{ 'on' if status.dedicated_online else 'off' }}"></span><strong>Server</strong><span>{{ 'Online' if status.dedicated_online else 'Offline' }}</span></div>
+    </div>
+    <dl>
+      <div><dt>Host</dt><dd>{{ server.Host or 'Not set' }}</dd></div>
+      <div><dt>Whitelist Requests</dt><dd>{{ 'On' if server.Whitelist else 'Off' }}</dd></div>
+      <div><dt>Donator Access</dt><dd>{{ 'Only' if server.Donator else 'Off' }}</dd></div>
+      <div><dt>Hidden</dt><dd>{{ 'Yes' if server.Hidden else 'No' }}</dd></div>
+    </dl>
+    <a class="button" href="{{ url_for('server_detail', instance_id=server.InstanceID) }}">Open Server</a>
+  </article>
+  {% endfor %}
+</section>
+{% endblock %}

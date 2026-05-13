@@ -137,7 +137,7 @@ class AMP_Server(commands.Cog):
 
         if not amp_server._ADScheck():
             amp_server.StartInstance()
-            amp_server.ADS_Running = True
+            amp_server.markADSStarting()
             await context.send(f'Starting the AMP Dedicated Server **{amp_server.InstanceName}**', ephemeral=True, delete_after=self._client.Message_Timeout)
         else:
             return await context.send(f'Hmm it appears the server is already `Running..`', ephemeral=True, delete_after=self._client.Message_Timeout)
@@ -167,7 +167,7 @@ class AMP_Server(commands.Cog):
         amp_server = await self.uBot._serverCheck(context, server)
         if amp_server:
             amp_server.RestartInstance()
-            amp_server.ADS_Running = True
+            amp_server.markADSStarting()
             await context.send(f'Restarting the AMP Dedicated Server **{amp_server.InstanceName}**', ephemeral=True, delete_after=self._client.Message_Timeout)
 
     @server.command(name='kill')

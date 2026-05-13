@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-header">
+  <div><span class="eyebrow">Credentials</span><h1>Bot Tokens And AMP Login</h1></div>
+  <span class="status-pill {{ 'good' if tokens_exists else 'warn' }}">{{ 'tokens.py found' if tokens_exists else 'tokens.py will be created' }}</span>
+</header>
+
+<section class="content-grid">
+  <form class="panel form-grid" method="post">
+    <div class="panel-header full"><h2>Discord Bot</h2></div>
+    <label class="full">Discord bot token
+      <input name="token" type="password" autocomplete="off" placeholder="{{ 'Leave blank to keep saved Discord token' if has_discord_token else 'Paste Discord bot token' }}" {% if not has_discord_token %}required{% endif %}>
+      <small>{% if has_discord_token %}A Discord bot token is saved. Leave blank to keep it.{% else %}Required. Get this from the Discord Developer Portal bot token page.{% endif %}</small>
+    </label>
+
+    <div class="panel-header full section-break"><h2>AMP Connection</h2></div>
+    <label class="full">AMP URL
+      <input name="AMPurl" value="{{ tokens.AMPurl or '' }}" placeholder="http://192.168.4.107:8080" required>
+      <small>Use the AMP web panel URL, including http:// or https:// and the AMP port.</small>
+    </label>
+    <label>AMP username
+      <input name="AMPUser" autocomplete="off" placeholder="{{ 'Leave blank to keep saved username' if has_amp_user else 'AMP username' }}" {% if not has_amp_user %}required{% endif %}>
+      <small>{% if has_amp_user %}An AMP username is saved. Leave blank to keep it.{% else %}The AMP user Gatekeeper should log in as.{% endif %}</small>
+    </label>
+    <label>AMP password
+      <input name="AMPPassword" type="password" autocomplete="current-password" placeholder="{{ 'Leave blank to keep saved password' if has_password else '' }}" {% if not has_password %}required{% endif %}>
+      <small>{% if has_password %}Leave blank to keep the currently saved password.{% else %}Required because no password is saved yet.{% endif %}</small>
+    </label>
+    <label class="full">AMP 2FA secret
+      <input name="AMPAuth" type="password" autocomplete="off" placeholder="{{ 'Leave blank to keep saved 2FA secret' if has_amp_auth else 'Optional TOTP/2FA secret' }}">
+      <small>Only fill this in if your AMP account uses a TOTP/2FA secret. Leave blank to keep the saved value, or check the box below to clear it.</small>
+    </label>
+    <label class="toggle full"><input type="checkbox" name="clear_AMPAuth"> Clear saved AMP 2FA secret <small>Use this when AMP 2FA is disabled for the bot account.</small>
+    </label>
+    <button class="button primary full" type="submit">Save Credentials</button>
+  </form>
+
+  <div class="panel stack">
+    <div class="panel-header"><h2>Reboot Required</h2></div>
+    <p class="muted">AMP credentials are loaded when Gatekeeper starts. After saving new credentials, reboot the bot so the AMP handler reconnects with the new login.</p>
+    <form method="post" action="{{ url_for('reboot_bot') }}" onsubmit="return confirm('Reboot Gatekeeper now? AMP should restart the instance if restart policy is enabled.');">
+      <button class="button danger" type="submit">Reboot Gatekeeper</button>
+    </form>
+    <div class="help-box">
+      <strong>What this edits</strong>
+      <ul>
+        <li>Writes Discord and AMP values to <b>tokens.py</b>.</li>
+        <li>Secret fields stay blank on page load and are only changed when you type a new value.</li>
+        <li>Reboot after saving so Discord and AMP reconnect with the new credentials.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+{% endblock %}

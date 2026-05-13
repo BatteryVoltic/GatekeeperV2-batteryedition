@@ -122,6 +122,9 @@ class AMPInstance:
         self.FriendlyName = None
 
         self.ADS_Running = False  # This is for the ADS (Dedicated Server) not the Instance!
+        self.ADS_Starting = False
+        self.ADS_State = None
+        self.ADS_Start_Requested_Time = 0
 
         self.Last_Update_Time = 0
 
@@ -563,6 +566,50 @@ class AMPInstance:
             self.ADS_Running = status
             return status
 
+    def markADSStarting(self):
+        self.ADS_Running = False
+        self.ADS_Starting = True
+        self.ADS_Start_Requested_Time = time.time()
+
+    def _app_state_raw(self):
+        return getattr(self, "AppState", None)
+
+    def _app_state_parts(self) -> tuple[str | None, int | None]:
+        state = self._app_state_raw()
+        if isinstance(state, dict):
+            for key in ("State", "state", "Value", "value", "Name", "name"):
+                if key in state:
+                    state = state[key]
+                    break
+        text = str(state).strip() if state is not None else None
+        number = None
+        if text is not None:
+            try:
+                number = int(float(text))
+            except ValueError:
+                number = None
+        return text, number
+
+    def _app_state_is_ready(self) -> bool:
+        text, number = self._app_state_parts()
+        if text is None:
+            return False
+        lowered = text.lower()
+        if any(word in lowered for word in ["ready", "started", "running"]):
+            return True
+        # AMP ApplicationState commonly uses 20 for Ready.
+        return number == 20
+
+    def _app_state_is_starting(self) -> bool:
+        text, number = self._app_state_parts()
+        if text is None:
+            return False
+        lowered = text.lower()
+        if any(word in lowered for word in ["prestart", "configuring", "starting", "restarting", "loading", "initializing", "installing", "updating"]):
+            return True
+        # Common AMP non-ready startup states. Ready is handled separately as 20.
+        return number in {5, 7, 10, 30, 100, 110}
+
     def _updateInstanceAttributes(self):
         """This updates an AMP Server Objects attributes from `getInstances()` API call."""
         if (not self.Initialized) or (time.time() - self.Last_Update_Time < 5):
@@ -603,25 +650,38 @@ class AMPInstance:
         self.Login()
         for instance in self.AMPHandler.AMP_Instances:
             server = self.AMPHandler.AMP_Instances[instance]
+            console = getattr(server, "Console", None)
+            if console == None:
+                self.logger.warning(f"{server.FriendlyName}: Console handler is unavailable; skipping console thread check.")
+                continue
+
+            if not server.Console_Flag:
+                if console.console_thread_running == True:
+                    self.logger.info(f"{server.FriendlyName}: Console handling is disabled; pausing console thread.")
+                    console.console_thread_running = False
+                continue
 
             # Lets validate our ADS Running before we check for console threads.
             if server.Running and server._ADScheck() and server.ADS_Running:
                 # Lets check if the Console Thread is running now.
-                if server.Console.console_thread_running == False:
+                if console.console_thread_running == False:
                     self.logger.info(
                         f"{server.FriendlyName}: Starting Console Thread, Instance Online: {server.Running} and ADS Online: {server.ADS_Running}"
                     )
-                    server.Console.console_thread_running = True
 
-                    if not server.Console.console_thread.is_alive():
-                        server.Console.console_thread.start()
+                    if console.console_thread == None or not console.console_thread.is_alive():
+                        console.console_thread = threading.Thread(target=console.console_parse_loop, name=server.FriendlyName)
+                        console.AMP_Console_Threads[server.InstanceID] = console.console_thread
+                        console.console_thread.start()
+
+                    console.console_thread_running = True
 
             if not server.Running or (server.Running and not server.ADS_Running):
-                if server.Console.console_thread_running == True:
+                if console.console_thread_running == True:
                     self.logger.error(
                         f"{server.FriendlyName}: Shutting down Console Thread, Instance Online: {server.Running}, ADS Online: {server.ADS_Running}."
                     )
-                    server.Console.console_thread_running = False
+                    console.console_thread_running = False
 
     def getInstances(self) -> dict:
         """This gets all Instances on AMP."""
@@ -659,6 +719,7 @@ class AMPInstance:
         self.Login()
         parameters = {}
         self.CallAPI("Core/Start", parameters)
+        self.markADSStarting()
         return
 
     def StopInstance(self):
@@ -666,6 +727,9 @@ class AMPInstance:
         self.Login()
         parameters = {}
         self.CallAPI("Core/Stop", parameters)
+        self.ADS_Running = False
+        self.ADS_Starting = False
+        self.ADS_Start_Requested_Time = 0
         return
 
     def RestartInstance(self):
@@ -673,6 +737,7 @@ class AMPInstance:
         self.Login()
         parameters = {}
         self.CallAPI("Core/Restart", parameters)
+        self.markADSStarting()
         return
 
     def KillInstance(self):
@@ -680,6 +745,9 @@ class AMPInstance:
         self.Login()
         parameters = {}
         self.CallAPI("Core/Kill", parameters)
+        self.ADS_Running = False
+        self.ADS_Starting = False
+        self.ADS_Start_Requested_Time = 0
         return
 
     def getStatus(self) -> dict:
@@ -691,6 +759,16 @@ class AMPInstance:
         # This happens because CallAPI returns False when it fails permissions.
         if result == False or None:
             return False
+        if isinstance(result, dict) and "State" in result:
+            status = str(result["State"])
+            self.ADS_State = status
+            if self._app_state_is_ready():
+                self.ADS_Starting = False
+                self.ADS_Start_Requested_Time = 0
+            elif self._app_state_is_starting():
+                self.ADS_Starting = True
+            else:
+                self.ADS_Starting = any(word in status.lower() for word in ["starting", "restarting", "loading", "initializing"])
         return result
 
     def getMetrics(self) -> tuple:
@@ -731,10 +809,27 @@ class AMPInstance:
         # This usually happens if the service is offline.
         if isinstance(result, dict) and "State" in result:
             status = str(result["State"])
+            self.ADS_State = status
+            status_lower = status.lower()
+            if self._app_state_is_ready():
+                self.ADS_Starting = False
+                self.ADS_Start_Requested_Time = 0
+            elif self._app_state_is_starting():
+                self.ADS_Starting = True
+                return False
+            elif self.ADS_Start_Requested_Time and time.time() - self.ADS_Start_Requested_Time < 180:
+                self.ADS_Starting = True
+                return False
+            elif any(word in status_lower for word in ["starting", "restarting", "loading", "initializing"]):
+                self.ADS_Starting = True
+                return False
+            else:
+                self.ADS_Starting = False
             if status == "0":
                 return False
             return True
         else:
+            self.ADS_Starting = False
             return False
 
     def getUsersOnline(self) -> tuple[str, str]:

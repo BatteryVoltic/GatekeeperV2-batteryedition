@@ -38,6 +38,7 @@ import DB
 from typing import Union
 
 Version = 'beta-4.7.4'
+DEFAULT_DISCORD_USER_ROLE = 'General'
 
 
 class Gatekeeper(commands.Bot):
@@ -68,6 +69,7 @@ class Gatekeeper(commands.Bot):
         self.uBot = utils.botUtils(client=self)
         self.uiBot = utils_ui
         self.eBot = utils_embeds.botEmbeds(client=self)
+        self._discord_user_sync_done = False
 
     async def setup_hook(self):
         if self.Bot_Version != Version:
@@ -91,7 +93,61 @@ class Gatekeeper(commands.Bot):
         traceback.print_exc()
 
     async def on_ready(self):
+        if not self._discord_user_sync_done:
+            self._discord_user_sync_done = True
+            await self.sync_discord_users()
         self.logger.info('Are you the Keymaster?...I am the Gatekeeper')
+
+    async def on_member_join(self, member: discord.Member):
+        await self.register_discord_member(member)
+
+    async def sync_discord_users(self):
+        """Registers every non-bot guild member in the database at bot boot."""
+        guilds = []
+        if self.guild_id is not None:
+            guild = self.get_guild(self.guild_id)
+            if guild is not None:
+                guilds.append(guild)
+            else:
+                self.logger.warning(f'Configured Guild_ID {self.guild_id} was not found in the bot cache; syncing all visible guilds instead.')
+                guilds = list(self.guilds)
+        else:
+            guilds = list(self.guilds)
+
+        added = 0
+        updated = 0
+        for guild in guilds:
+            try:
+                async for member in guild.fetch_members(limit=None):
+                    result = await self.register_discord_member(member)
+                    if result == "added":
+                        added += 1
+                    elif result == "updated":
+                        updated += 1
+            except discord.Forbidden:
+                self.logger.warning(f'Unable to sync Discord users for {guild.name}; the bot needs the Server Members Intent enabled in the Discord Developer Portal.')
+            except Exception:
+                self.logger.error(f'Unable to sync Discord users for {guild.name}: {traceback.format_exc()}')
+        self.logger.info(f'Discord user sync complete. Added {added} users and updated {updated} users.')
+
+    async def register_discord_member(self, member: discord.Member):
+        """Adds or updates a non-bot Discord member with the default General permission role."""
+        if member.bot:
+            return "skipped"
+
+        db_user = self.DB.GetUser(str(member.id))
+        if db_user is None:
+            self.DB.AddUser(DiscordID=str(member.id), DiscordName=member.name, Role=DEFAULT_DISCORD_USER_ROLE)
+            return "added"
+
+        changed = False
+        if db_user.DiscordName != member.name:
+            db_user.DiscordName = member.name
+            changed = True
+        if db_user.Role in [None, "", "None"]:
+            db_user.Role = DEFAULT_DISCORD_USER_ROLE
+            changed = True
+        return "updated" if changed else "exists"
 
     @tasks.loop(seconds=30)
     async def update_loop(self):
@@ -132,6 +188,11 @@ async def autocomplete_loadedcogs(interaction: discord.Interaction, current: str
     return [app_commands.Choice(name=choice, value=choice) for choice in choice_list if current.lower() in choice.lower()]
 
 client = Gatekeeper(Version=Version)
+try:
+    import web_ui
+    web_ui.set_discord_client(client)
+except Exception:
+    pass
 
 
 @client.hybrid_group(name='bot')

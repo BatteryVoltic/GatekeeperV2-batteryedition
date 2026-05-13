@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-header">
+  <div><span class="eyebrow">Overview</span><h1>Gatekeeper Control Center</h1></div>
+  <a class="button" href="{{ url_for('servers') }}">Manage Servers</a>
+</header>
+<section class="metrics">
+  <article><strong>{{ servers|length }}</strong><span>Servers</span></article>
+  <article><strong>{{ live_ids|length }}</strong><span>Live AMP Connections</span></article>
+  <article><strong>{{ user_count }}</strong><span>Users</span></article>
+  <article><strong>{{ regex_count }}</strong><span>Regex Filters</span></article>
+</section>
+<section class="content-grid dashboard-grid">
+  <div class="panel wide">
+    <div class="panel-header">
+      <h2>Servers</h2>
+      <span class="status-pill {{ 'good' if live_ok else 'warn' }}">{{ 'AMP Connected' if live_ok else 'Database Only' }}</span>
+    </div>
+    <div class="overview-server-list" id="overviewServerList" data-live-url="{{ url_for('server_statuses_api') }}">
+      {% for server in servers %}
+      {% set status = live_statuses.get(server.InstanceID, {}) %}
+      <a class="overview-server" href="{{ url_for('server_detail', instance_id=server.InstanceID) }}" data-instance-id="{{ server.InstanceID }}">
+        <strong>{{ server_name(server) }}</strong>
+        <span>{{ server.Host or 'Host not set' }}</span>
+        <div class="overview-status-dots">
+          <span title="AMP {{ 'connected' if status.amp_connected else 'not connected' }}"><i class="dot {{ 'on' if status.amp_connected else 'off' }}" data-status-dot="amp_connected"></i><small>AMP</small></span>
+          <span title="Container {{ 'online' if status.container_online else 'offline' }}"><i class="dot {{ 'on' if status.container_online else 'off' }}" data-status-dot="container_online"></i><small>Container</small></span>
+          <span title="Server {{ 'online' if status.dedicated_online else 'offline' }}"><i class="dot {{ 'on' if status.dedicated_online else 'off' }}" data-status-dot="dedicated_online"></i><small>Server</small></span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-header"><h2>Recent Changes</h2></div>
+    <div class="activity-list" id="recentChanges" data-live-url="{{ url_for('recent_changes_api') }}">
+      {% for log in logs %}
+      <div><strong>#{{ log.ID }}</strong><span>{{ log.LogDate }}</span><code>{{ log.Log }}</code></div>
+      {% else %}
+      <p class="muted">No changes logged yet.</p>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endblock %}

@@ -1,15 +1,16 @@
-#Discord Server Connection Bot Token (Under Bot request token)
-token = 'IGNORE THIS FIELD IF TESTING AMP/DB'
+# Discord bot token from the Discord Developer Portal.
+# Battery Edition can also create/update tokens.py from the web UI
+# under AMP Login / Credentials.
+token = ''
 
-#2Factor AUTH Code for AMP Console Login
-#Leave blank if you are not using 2FA.
+# AMP 2FA/TOTP secret.
+# Leave blank if the AMP account does not use 2FA.
 AMPAuth = ''
 
-#Login creds - ## DO NOT SHARE! ##
-#AMPUser is the Login Name for the account you want the bot to use.
-#AMPPassword is the password for said Login.
-#AMPurl is the local URL to your web gui (eg. http://192.168.3.500:8080)
+# AMP login credentials. Do not share tokens.py.
+# AMPUser is the AMP username Gatekeeper should use.
+# AMPPassword is the AMP password for that user.
+# AMPurl is the AMP panel URL, for example http://192.168.4.107:8080
 AMPUser = ''
 AMPPassword = ''
 AMPurl = ''
-

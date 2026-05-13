@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-header"><div><span class="eyebrow">Filters</span><h1>Regex Patterns</h1></div></header>
+<section class="content-grid">
+  <div class="panel">
+    <div class="panel-header"><h2>Add Pattern</h2></div>
+    <p class="muted">Regex patterns control what console or event messages are allowed through when a server has filtering enabled. Add the pattern here, then assign it to one or more servers below.</p>
+    <form class="stack" method="post">
+      <label>Name<input name="Name" required><small>Friendly label for this pattern, such as Hide Join Messages.</small></label>
+      <label>Type<select name="Type"><option value="0">Console</option><option value="1">Events</option></select><small>Console applies to console output. Events applies to event-style messages.</small></label>
+      <label>Pattern<textarea name="Pattern" rows="5" required></textarea><small>Regular expression to match. Example: joined the game|left the game</small></label>
+      <button class="button primary" type="submit">Add Pattern</button>
+    </form>
+  </div>
+  <div class="panel wide">
+    <div class="panel-header"><h2>Patterns</h2></div>
+    <p class="muted">Deleting a pattern removes the reusable pattern itself. Remove it from servers first if you only want one server to stop using it.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Name</th><th>Type</th><th>Pattern</th><th></th></tr></thead>
+        <tbody>
+          {% for pattern in patterns %}
+          <tr>
+            <td>{{ pattern.Name }}</td>
+            <td>{{ 'Console' if pattern.Type == 0 else 'Events' }}</td>
+            <td><code>{{ pattern.Pattern }}</code></td>
+            <td><form method="post" action="{{ url_for('delete_regex', regex_id=pattern.ID) }}"><button class="link-danger">Delete</button></form></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<section class="panel">
+  <div class="panel-header"><h2>Assign To Server</h2></div>
+  <p class="muted">Assign connects an existing regex pattern to a server. Remove disconnects that pattern from the selected server.</p>
+  <form class="toolbar" method="post" action="{{ url_for('server_regex') }}">
+    <select name="server_id">{% for server in servers %}<option value="{{ server.ID }}">{{ server_name(server) }}</option>{% endfor %}</select>
+    <select name="regex_id">{% for pattern in patterns %}<option value="{{ pattern.ID }}">{{ pattern.Name }}</option>{% endfor %}</select>
+    <button class="button primary" name="mode" value="add">Assign</button>
+    <button class="button" name="mode" value="remove">Remove</button>
+  </form>
+</section>
+{% endblock %}

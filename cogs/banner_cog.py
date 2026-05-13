@@ -71,6 +71,14 @@ def get_time_format(self) -> str:
     else:
         return '%Y-%m-%d | %H:%M %Z'
 
+
+def get_discord_timestamp(self) -> str:
+    """Return a Discord dynamic timestamp such as <t:1778462820:f>."""
+    timestamp_format = self.DBConfig.GetSetting('Banner_Timestamp_Format') or 'f'
+    if timestamp_format not in ['t', 'T', 'd', 'D', 'f', 'F', 'R']:
+        timestamp_format = 'f'
+    return f'<t:{int(datetime.now().timestamp())}:{timestamp_format}>'
+
 class Banner(commands.Cog):
     def __init__(self, client: commands.Bot):
         self._client = client
@@ -182,11 +190,41 @@ class Banner(commands.Cog):
         banner_file = self.uiBot.banner_file_handler(self.BC.Banner_Generator(amp_server, db_server.getBanner())._image_())
         await sent_msg.edit(content='**Banner Editor**', attachments=[banner_file], view=editor_view)
 
+    def _whitelist_request_view(self, db_servers: list[DB.DBServer]):
+        """Builds a public whitelist request button view for visible, whitelist-open servers."""
+        amp_servers = []
+        for db_server in db_servers:
+            if db_server == None:
+                continue
+            if db_server.Hidden == 1 or not db_server.Whitelist:
+                continue
+            amp_server = self.AMPHandler.AMP_Instances.get(db_server.InstanceID)
+            if amp_server != None:
+                amp_servers.append(amp_server)
+        if not amp_servers:
+            return None
+        return self.uiBot.Whitelist_Request_Server_View(client=self._client, amp_servers=amp_servers)
+
+    def _displayable_servers_for_view(self, banner_name: str, db_servers: list[DB.DBServer]):
+        displayable_servers = []
+        for db_server in db_servers:
+            if db_server == None:
+                continue
+            if db_server.Hidden == 1:
+                continue
+            if db_server.InstanceID not in self.AMPHandler.AMP_Instances:
+                if self.DBConfig.GetSetting("Auto_BG_Remove") == True:
+                    self.DB.Remove_Server_from_BannerGroup(banner_groupname=banner_name, instanceID=db_server.InstanceID)
+                continue
+            displayable_servers.append(db_server)
+        return displayable_servers
+
     async def _embed_generator(self, banner_name: str, server_list: list[str], message_list: list[discord.Message], discord_guild: discord.Guild, discord_channel: discord.TextChannel):
         embed_list = await self.eBot.server_display_embed(server_list=server_list, guild=discord_guild, banner_name=banner_name)
         if len(embed_list) == 0:
             self.logger.warn('We failed to find any Banners for your Instances.')
             return
+        displayable_servers = self._displayable_servers_for_view(banner_name=banner_name, db_servers=server_list)
         ratio = math.ceil((len(embed_list) / 10))
         # compare ratio to len(message_list)
         # If our message list is way larger than our embeds; lets remove the extras. (1 msg to 10 embeds)
@@ -207,18 +245,20 @@ class Banner(commands.Cog):
                     await message.delete()
 
             for curpos in range(0, len(embed_list), 10):
-                cur_message = await discord_channel.send(embeds=embed_list[curpos:(curpos + 9)])
+                cur_message = await discord_channel.send(
+                    embeds=embed_list[curpos:(curpos + 10)],
+                    view=self._whitelist_request_view(displayable_servers[curpos:(curpos + 10)])
+                )
                 self.DB.Add_Message_to_BannerGroup(banner_groupname=banner_name, channelid=discord_channel.id, messageid=cur_message.id)
 
         elif len(message_list) == ratio:
             for curpos in range(0, len(message_list)):
                 try:
-                    now = get_current_timezone_time(self)
-                    time_str = now.strftime(get_time_format(self))
                     await message_list[curpos].edit(
-                        content=f"*Edited at {time_str}*",
+                        content=f"*Edited at {get_discord_timestamp(self)}*",
                         embeds=embed_list[curpos * 10:(curpos + 1) * 10],
-                        attachments=[]
+                        attachments=[],
+                        view=self._whitelist_request_view(displayable_servers[curpos * 10:(curpos + 1) * 10])
                     )
                 except discord.errors.Forbidden:
                     self.logger.error(f'{self._client.user.name} lacks permissions to edit messages in {discord_channel.name}, removing the Channel from {banner_name}.')
@@ -233,6 +273,7 @@ class Banner(commands.Cog):
 
     async def _banner_generator(self, banner_name: str, server_list: list[str], message_list: list[discord.Message], discord_guild: discord.Guild, discord_channel: discord.TextChannel):
         banner_image_list = []
+        banner_server_list = []
 
         for db_server in server_list:
 
@@ -254,6 +295,7 @@ class Banner(commands.Cog):
             banner_file = self.uiBot.banner_file_handler(self.BC.Banner_Generator(amp_server, db_server.getBanner())._image_())
             # Store all the images as a `discord.File` for ease of iterations.
             banner_image_list.append(banner_file)
+            banner_server_list.append(db_server)
 
         if not len(banner_image_list):
             self.logger.warn('We failed to find any Banners for your Instances.')
@@ -282,7 +324,10 @@ class Banner(commands.Cog):
                     self.DB.Remove_Message_from_BannerGroup(messageid=message.id)
 
             for curpos in range(0, len(banner_image_list)):
-                cur_message = await discord_channel.send(file=banner_image_list[curpos])
+                cur_message = await discord_channel.send(
+                    file=banner_image_list[curpos],
+                    view=self._whitelist_request_view([banner_server_list[curpos]])
+                )
                 self.DB.Add_Message_to_BannerGroup(banner_groupname=banner_name, channelid=discord_channel.id, messageid=cur_message.id)
 
         elif len(message_list) == len(banner_image_list):
@@ -290,16 +335,19 @@ class Banner(commands.Cog):
             for curpos in range(0, len(message_list)):
                 try:
                     if first_msg:
-                        now = get_current_timezone_time(self)
-                        time_str = now.strftime(get_time_format(self))
                         await message_list[curpos].edit(
-                            content=f"*Edited at {time_str}*",
+                            content=f"*Edited at {get_discord_timestamp(self)}*",
                             attachments=[banner_image_list[curpos]],
-                            embed=None
+                            embed=None,
+                            view=self._whitelist_request_view([banner_server_list[curpos]])
                         )
                         first_msg = False
                     else:
-                        await message_list[curpos].edit(attachments=[banner_image_list[curpos]], embed=None)
+                        await message_list[curpos].edit(
+                            attachments=[banner_image_list[curpos]],
+                            embed=None,
+                            view=self._whitelist_request_view([banner_server_list[curpos]])
+                        )
 
                 except discord.errors.Forbidden:
                     self.logger.error(f'{self._client.user.name} lacks permissions to edit messages in {discord_channel.name}, removing the Channel from {banner_name}.')
@@ -314,15 +362,16 @@ class Banner(commands.Cog):
     @tasks.loop(minutes=1)
     async def banner_loop_time_control(self):
         """Dynamically adjusts the `server_display_update` loop time."""
-        base_time = 60  # seconds
-        # for each message we have in the DB; lets add to our base_time so we can *hopefully* avoid API ratelimit from discord.
-        num_messages = self.DB.get_all_bannergroup_messages()
-        base_time += (num_messages * 10)
+        base_time = self.DBConfig.GetSetting('Banner_Update_Interval')
+        try:
+            base_time = max(15, int(base_time))
+        except (TypeError, ValueError):
+            base_time = 60
 
         if self.server_display_update.seconds == base_time:
             return
         else:
-            self.logger.info(f'We adjusted our Banner Update time from {self.server_display_update.seconds} seconds to {base_time} seconds.')
+            self.logger.info(f'Banner update interval set to {base_time} seconds.')
             self.server_display_update.change_interval(seconds=base_time)
 
     @tasks.loop(seconds=60)

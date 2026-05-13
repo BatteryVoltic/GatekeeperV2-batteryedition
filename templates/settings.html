@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-header">
+  <div><span class="eyebrow">Bot</span><h1>Cog Settings</h1></div>
+</header>
+
+<form class="stack" method="post">
+  {% for section in sections %}
+  <section class="panel form-grid">
+    <div class="panel-header full">
+      <div>
+        <h2>{{ section.title }}</h2>
+        <p class="muted">{{ section.description }}</p>
+      </div>
+    </div>
+
+    {% for name in section.fields %}
+      {% if name in ["Auto_Whitelist", "Donator_Bypass", "Banner_Auto_Update", "Auto_BG_Remove", "Banner_Use_12Hour"] %}
+        <label class="toggle full"><input type="checkbox" name="{{ name }}" {% if current[name]|string in ["1", "True", "true"] %}checked{% endif %}> {{ name.replace("_", " ") }}</label>
+        <input type="hidden" name="{{ name }}_present" value="1">
+      {% elif name == "Guild_ID" %}
+        <label>Discord server
+          <select name="{{ name }}">
+            <option value="">Not set</option>
+            {% if current[name] %}<option value="{{ current[name] }}" selected>Current: {{ current[name] }}</option>{% endif %}
+            {% for guild in discord_options.guilds %}
+            <option value="{{ guild.id }}" {% if current[name]|string == guild.id|string %}selected{% endif %}>{{ guild.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      {% elif name in ["Moderator_role_id", "Donator_role_id"] %}
+        <label>{{ "Moderator role" if name == "Moderator_role_id" else "Donator role" }}
+          <select name="{{ name }}">
+            <option value="">Not set</option>
+            {% if current[name] %}<option value="{{ current[name] }}" selected>Current: {{ current[name] }}</option>{% endif %}
+            {% for role in discord_options.roles %}
+            <option value="{{ role.id }}" {% if current[name]|string == role.id|string %}selected{% endif %}>{{ role.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      {% elif name == "Whitelist_Request_Channel" %}
+        <label class="full">Whitelist request channel
+          <select name="{{ name }}" required>
+            <option value="">Not set</option>
+            {% if current[name] %}<option value="{{ current[name] }}" selected>Current: {{ current[name] }}</option>{% endif %}
+            {% for channel in discord_options.channels %}
+            <option value="{{ channel.id }}" {% if current[name]|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
+            {% endfor %}
+          </select>
+          <small>Required for the public whitelist request buttons. Staff approval requests are posted here when auto-whitelist is off or waiting.</small>
+        </label>
+      {% elif name == "Whitelist_Wait_Time" %}
+        <label>Whitelist wait time minutes
+          <input type="number" min="0" max="60" name="{{ name }}" value="{{ current[name] if current[name] is not none else 5 }}">
+          <small>Use 0 for instant auto-whitelist when Auto Whitelist is enabled.</small>
+        </label>
+      {% elif name == "Permissions" %}
+        <label>Permission mode
+          <select name="{{ name }}">
+            <option value="Default" {% if current[name]|string in ["0", "Default"] %}selected{% endif %}>Default</option>
+            <option value="Custom" {% if current[name]|string in ["1", "Custom"] %}selected{% endif %}>Custom</option>
+          </select>
+        </label>
+      {% elif name == "Message_Timeout" %}
+        <label>Message timeout seconds
+          <input type="number" min="0" name="{{ name }}" value="{{ current[name] if current[name] is not none else 60 }}">
+        </label>
+      {% else %}
+        <label>{{ name.replace("_", " ") }}<input name="{{ name }}" value="{{ current[name] if current[name] is not none else '' }}"></label>
+      {% endif %}
+    {% endfor %}
+  </section>
+  {% endfor %}
+
+  <button class="button primary" type="submit">Save Cog Settings</button>
+</form>
+{% endblock %}

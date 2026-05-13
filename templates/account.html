@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-header"><div><span class="eyebrow">Security</span><h1>Account</h1></div></header>
+<form class="panel stack narrow" method="post">
+  <label>Username<input name="username" value="{{ username }}" required></label>
+  <label>New password<input name="password" type="password" placeholder="Leave blank to keep current password"></label>
+  <button class="button primary" type="submit">Save Login</button>
+</form>
+{% endblock %}

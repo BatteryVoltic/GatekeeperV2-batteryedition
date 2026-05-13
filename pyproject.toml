@@ -3,13 +3,14 @@ requires      = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "GatekeeperV2"
+name = "GatekeeperV2-BatteryEdition"
 dynamic = ["version"]
 authors = [
     { name = "k8thekat", email = "Cadwalladerkatelynn+Gatekeeper@gmail.com" },
+    { name = "BatteryVoltic" },
 ]
-description = "A Discord Bot for Cube Coders AMP"
-readme = { file = "README", content-type = "text/markdown" }
+description = "A GatekeeperV2 fork with an AMP-friendly web UI for Discord server management"
+readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11.0"
 license = { file = "LICENSE" }
 classifiers = [
@@ -26,8 +27,8 @@ classifiers = [
 ]
 
 [project.urls]
-GitHub    = "https://github.com/k8thekat/GatekeeperV2"
-Changelog = "https://github.com/k8thekat/GatekeeperV2/blob/main/changelog"
+GitHub   = "https://github.com/BatteryVoltic/GatekeeperV2-batteryedition"
+Original = "https://github.com/k8thekat/GatekeeperV2"
 
 [tool.setuptools.dynamic]
 dependencies = { file = "requirements.txt" }

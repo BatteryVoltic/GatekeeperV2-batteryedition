@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-header"><div><span class="eyebrow">Whitelist</span><h1>Reply Messages</h1></div></header>
+<section class="panel">
+  <p class="muted">These are optional messages the bot can send after a successful whitelist approval. If no replies exist, the bot uses its default success message.</p>
+  <form class="stack" method="post">
+    <label>New reply
+      <textarea name="message" rows="4" placeholder="Welcome <user>, you were added to <server>."></textarea>
+      <small>Use simple wording players will understand. Existing command placeholders still work through the bot's whitelist reply handler.</small>
+    </label>
+    <button class="button primary" type="submit">Add Reply</button>
+  </form>
+  <div class="reply-list">
+    {% for reply in replies %}
+    <article>
+      <p>{{ reply.Message }}</p>
+      <form method="post" action="{{ url_for('delete_whitelist_reply', reply_id=reply.ID) }}"><button class="link-danger" type="submit">Delete</button></form>
+    </article>
+    {% else %}
+    <p class="muted">No replies yet.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}
